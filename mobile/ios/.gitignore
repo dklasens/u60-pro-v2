@@ -1,0 +1,29 @@
+# --- Xcode generated ---
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# --- Build artifacts ---
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# --- Secrets & local config ---
+.env
+*.env.local
+
+# --- macOS ---
+.DS_Store
+*.swp
+*~
+
+# --- Certificates & provisioning ---
+*.mobileprovision
+*.p12
+*.pem
+*.key
+
+# --- Temporary ---
+/tmp/
