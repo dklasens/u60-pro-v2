@@ -5,7 +5,7 @@ import Card, { Stat } from '../components/Card'
 import { usePolling } from '../hooks/usePolling'
 
 function signalColor(rsrp?: number) {
-  if (rsrp == null) return 'text-text-muted'
+  if (rsrp == null) return 'text-slate-400'
   if (rsrp > -80) return 'text-green-500'
   if (rsrp > -100) return 'text-yellow-500'
   return 'text-red-500'
@@ -39,7 +39,7 @@ function BatteryIcon({ percent, charging }: { percent: number; charging: boolean
 }
 
 function formatUptime(secs?: number) {
-  if (!secs) return '—'
+  if (!secs) return '\u2014'
   const d = Math.floor(secs / 86400)
   const h = Math.floor((secs % 86400) / 3600)
   const m = Math.floor((secs % 3600) / 60)
@@ -49,8 +49,8 @@ function formatUptime(secs?: number) {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-text-secondary">{label}</span>
-      <span className="truncate text-right font-medium text-text-primary">{value}</span>
+      <span className="text-slate-600">{label}</span>
+      <span className="truncate text-right font-medium text-slate-800">{value}</span>
     </div>
   )
 }
@@ -93,126 +93,117 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Dashboard</h1>
+        <h1 className="text-3xl font-bold text-slate-800">Dashboard</h1>
         {error && <span className="text-xs text-red-500">{error}</span>}
       </div>
 
-      {/* Top stats row */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {/* Signal */}
         <Card>
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Signal</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Signal</p>
               <p className={`mt-1 text-2xl font-bold ${signalColor(pccRsrp)}`}>
-                {pccRsrp != null ? `${pccRsrp}` : '—'}
+                {pccRsrp != null ? `${pccRsrp}` : '\u2014'}
               </p>
-              <p className="text-xs text-text-muted">dBm RSRP</p>
+              <p className="text-xs text-slate-400">dBm RSRP</p>
             </div>
             <SignalBars bars={signal?.signal_bars} />
           </div>
           <div className="mt-2 flex items-center gap-1.5">
-            <span className={`rounded-pill px-2 py-0.5 text-xs font-medium ${
-              isNR ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-primary'
+            <span className={`rounded-lg px-2 py-0.5 text-[9px] uppercase font-bold border shadow-sm ${
+              isNR ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-blue-100 text-blue-700 border-blue-200'
             }`}>
-              {signal?.type ?? '—'}
+              {signal?.type ?? '\u2014'}
             </span>
-            <span className="text-xs text-text-muted">{signal?.band ?? ''}</span>
+            <span className="text-xs text-slate-400">{signal?.band ?? ''}</span>
           </div>
         </Card>
 
-        {/* Battery */}
         <Card>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Battery</p>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Battery</p>
           <div className="mt-1 flex items-center gap-3">
-            <p className="text-2xl font-bold text-text-primary">
-              {battery?.percent != null ? `${battery.percent}%` : '—'}
+            <p className="text-2xl font-bold text-slate-800">
+              {battery?.percent != null ? `${battery.percent}%` : '\u2014'}
             </p>
             {battery && <BatteryIcon percent={battery.percent} charging={battery.charging} />}
           </div>
-          <p className="mt-1 text-xs text-text-muted">
+          <p className="mt-1 text-xs text-slate-400">
             {battery?.charging ? 'Charging' : 'On battery'}
-            {battery?.voltage_mv ? ` · ${(battery.voltage_mv / 1000).toFixed(2)}V` : ''}
-            {battery?.temperature_c ? ` · ${battery.temperature_c}°C` : ''}
+            {battery?.voltage_mv ? ` \u00b7 ${(battery.voltage_mv / 1000).toFixed(2)}V` : ''}
+            {battery?.temperature_c ? ` \u00b7 ${battery.temperature_c}\u00b0C` : ''}
           </p>
         </Card>
 
-        {/* Download */}
         <Card>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Download</p>
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Download</p>
           <p className="mt-1 text-2xl font-bold text-green-500">
-            {speed ? formatSpeed(speed.rx_bps) : '—'}
+            {speed ? formatSpeed(speed.rx_bps) : '\u2014'}
           </p>
           {speed && speed.max_rx_bps > 0 && (
-            <p className="mt-1 text-xs text-text-muted">Peak: {formatSpeed(speed.max_rx_bps)}</p>
+            <p className="mt-1 text-xs text-slate-400">Peak: {formatSpeed(speed.max_rx_bps)}</p>
           )}
         </Card>
 
-        {/* Upload */}
         <Card>
-          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Upload</p>
-          <p className="mt-1 text-2xl font-bold text-primary">
-            {speed ? formatSpeed(speed.tx_bps) : '—'}
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Upload</p>
+          <p className="mt-1 text-2xl font-bold text-blue-600">
+            {speed ? formatSpeed(speed.tx_bps) : '\u2014'}
           </p>
           {speed && speed.max_tx_bps > 0 && (
-            <p className="mt-1 text-xs text-text-muted">Peak: {formatSpeed(speed.max_tx_bps)}</p>
+            <p className="mt-1 text-xs text-slate-400">Peak: {formatSpeed(speed.max_tx_bps)}</p>
           )}
         </Card>
       </div>
 
-      {/* Info grid */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {/* Signal detail */}
         <Card title="Signal Detail">
           <div className="grid grid-cols-2 gap-3">
-            <Stat label="RSRP" value={pccRsrp != null ? `${pccRsrp} dBm` : '—'} color={signalColor(pccRsrp)} />
-            <Stat label="RSRQ" value={primaryCarrier?.rsrq != null ? `${primaryCarrier.rsrq} dB` : '—'} />
-            <Stat label="SINR" value={primaryCarrier?.sinr != null ? `${primaryCarrier.sinr} dB` : '—'} />
-            <Stat label="RSSI" value={primaryCarrier?.rssi != null ? `${primaryCarrier.rssi} dBm` : '—'} />
+            <Stat label="RSRP" value={pccRsrp != null ? `${pccRsrp} dBm` : '\u2014'} color={signalColor(pccRsrp)} />
+            <Stat label="RSRQ" value={primaryCarrier?.rsrq != null ? `${primaryCarrier.rsrq} dB` : '\u2014'} />
+            <Stat label="SINR" value={primaryCarrier?.sinr != null ? `${primaryCarrier.sinr} dB` : '\u2014'} />
+            <Stat label="RSSI" value={primaryCarrier?.rssi != null ? `${primaryCarrier.rssi} dBm` : '\u2014'} />
           </div>
           {signal && signal.lte_carriers.length > 0 && (
-            <div className="mt-3 border-t border-divider pt-3">
-              <p className="mb-1.5 text-xs text-text-muted">LTE ({signal.lte_carriers.length} carrier{signal.lte_carriers.length > 1 ? 's' : ''})</p>
+            <div className="mt-3 border-t border-slate-200/60 pt-3">
+              <p className="mb-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-widest">LTE ({signal.lte_carriers.length} carrier{signal.lte_carriers.length > 1 ? 's' : ''})</p>
               <div className="flex flex-wrap gap-1.5">
                 {signal.lte_carriers.map((c, i) => (
-                  <span key={i} className="rounded-pill bg-blue-100 px-2 py-0.5 text-xs font-medium text-primary">{c.band}{c.rsrp != null ? `: ${c.rsrp} dBm` : ''}</span>
+                  <span key={i} className="rounded-lg bg-blue-100 px-2 py-0.5 text-[9px] font-bold text-blue-700 border border-blue-200 shadow-sm">{c.band}{c.rsrp != null ? `: ${c.rsrp} dBm` : ''}</span>
                 ))}
               </div>
             </div>
           )}
           {signal && signal.nr_carriers.length > 0 && (
-            <div className="mt-3 border-t border-divider pt-3">
-              <p className="mb-1.5 text-xs text-text-muted">5G NR ({signal.nr_carriers.length} carrier{signal.nr_carriers.length > 1 ? 's' : ''})</p>
+            <div className="mt-3 border-t border-slate-200/60 pt-3">
+              <p className="mb-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-widest">5G NR ({signal.nr_carriers.length} carrier{signal.nr_carriers.length > 1 ? 's' : ''})</p>
               <div className="flex flex-wrap gap-1.5">
                 {signal.nr_carriers.map((c, i) => (
-                  <span key={i} className="rounded-pill bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">{c.band}: {c.rsrp} dBm</span>
+                  <span key={i} className="rounded-lg bg-purple-100 px-2 py-0.5 text-[9px] font-bold text-purple-700 border border-purple-200 shadow-sm">{c.band}: {c.rsrp} dBm</span>
                 ))}
               </div>
             </div>
           )}
         </Card>
 
-        {/* Device */}
         <Card title="Device">
           <div className="space-y-2 text-sm">
-            <Row label="Model" value={device?.model ?? '—'} />
-            <Row label="Firmware" value={device?.firmware ?? '—'} />
+            <Row label="Model" value={device?.model ?? '\u2014'} />
+            <Row label="Firmware" value={device?.firmware ?? '\u2014'} />
             <Row label="Uptime" value={formatUptime(device?.uptime_secs)} />
-            <Row label="Operator" value={signal?.carrier ?? '—'} />
+            <Row label="Operator" value={signal?.carrier ?? '\u2014'} />
             {cpu && <Row label="CPU" value={`${cpu.overall.toFixed(1)}%`} />}
             {mem && <Row label="Memory" value={`${mem.usage_pct.toFixed(0)}%`} />}
           </div>
         </Card>
 
-        {/* WAN / IPv6 */}
         <Card title="WAN">
           <div className="space-y-2 text-sm">
-            <Row label="IPv4" value={wan?.ipv4 ?? '—'} />
-            <Row label="Gateway" value={wan?.gateway ?? '—'} />
-            <Row label="IPv6" value={wan6?.ipv6 ?? '—'} />
+            <Row label="IPv4" value={wan?.ipv4 ?? '\u2014'} />
+            <Row label="Gateway" value={wan?.gateway ?? '\u2014'} />
+            <Row label="IPv6" value={wan6?.ipv6 ?? '\u2014'} />
             {wan6?.prefix && <Row label="IPv6 Prefix" value={wan6.prefix} />}
             {wan?.dns && wan.dns.length > 0 && (
-              <Row label="DNS (v4)" value={wan.dns.filter(d => !d.includes(':')).join(', ') || '—'} />
+              <Row label="DNS (v4)" value={wan.dns.filter(d => !d.includes(':')).join(', ') || '\u2014'} />
             )}
             {wan6?.dns && wan6.dns.length > 0 && (
               <Row label="DNS (v6)" value={wan6.dns.join(', ')} />
@@ -220,7 +211,6 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        {/* Data Usage */}
         <Card title="Data Usage">
           {usage ? (
             <div className="space-y-3">
@@ -230,16 +220,16 @@ export default function DashboardPage() {
                 { label: 'Total', data: usage.total },
               ].map(({ label, data }) => (
                 <div key={label}>
-                  <p className="text-xs text-text-muted">{label}</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{label}</p>
                   <div className="mt-0.5 flex gap-4 text-sm">
                     <span className="text-green-500">&#x2193; {formatBytes(data.rx_bytes)}</span>
-                    <span className="text-primary">&#x2191; {formatBytes(data.tx_bytes)}</span>
+                    <span className="text-blue-600">&#x2191; {formatBytes(data.tx_bytes)}</span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-text-muted">Loading...</p>
+            <p className="text-sm text-slate-400">Loading...</p>
           )}
         </Card>
       </div>

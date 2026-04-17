@@ -7,11 +7,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Alert({ type, msg }: { type: 'success' | 'error' | 'info'; msg: string }) {
-  const colors = { success: 'text-green-500', error: 'text-red-500', info: 'text-primary' }
+  const colors = { success: 'text-green-500', error: 'text-red-500', info: 'text-blue-600' }
   return <p className={`text-sm ${colors[type]}`}>{msg}</p>
 }
 
-// ── USB Mode ──────────────────────────────────────────────────────────────────
 function UsbTool() {
   const [msg, setMsg] = useState('')
   const [loading, setLoading] = useState(false)
@@ -31,12 +30,12 @@ function UsbTool() {
   return (
     <Section title="USB Mode">
       <div className="space-y-3">
-        <p className="text-xs text-text-muted">Switch USB operating mode. A reboot may be required.</p>
+        <p className="text-xs text-slate-400">Switch USB operating mode. A reboot may be required.</p>
         {msg && <Alert type={msg.includes('Error') ? 'error' : 'success'} msg={msg} />}
         <div className="flex flex-wrap gap-2">
           {['rndis', 'ecm', 'ncm', 'debug'].map(m => (
             <button key={m} onClick={() => setMode(m)} disabled={loading}
-              className="rounded-pill bg-white/30 backdrop-blur-sm px-3 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200 disabled:opacity-40">
+              className="bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-bold text-slate-500 shadow-sm transition-all active:scale-95 text-sm disabled:opacity-40">
               {m.toUpperCase()}
             </button>
           ))}
@@ -46,7 +45,6 @@ function UsbTool() {
   )
 }
 
-// ── Reboot ────────────────────────────────────────────────────────────────────
 function RebootTool() {
   const [confirm, setConfirm] = useState(false)
   const [rebooting, setRebooting] = useState(false)
@@ -58,17 +56,20 @@ function RebootTool() {
 
   return (
     <Section title="Device Reboot">
-      <p className="mb-3 text-xs text-text-muted">Reboot the router. All connections will be temporarily interrupted.</p>
+      <p className="mb-3 text-xs text-slate-400">Reboot the router. All connections will be temporarily interrupted.</p>
       {!confirm ? (
-        <button onClick={() => setConfirm(true)} className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">
+        <button onClick={() => setConfirm(true)}
+          className="rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-600 border border-red-200 hover:bg-red-100 transition-all duration-150">
           Reboot
         </button>
       ) : (
         <div className="flex gap-2">
-          <button onClick={doReboot} disabled={rebooting} className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200 disabled:opacity-40">
+          <button onClick={doReboot} disabled={rebooting}
+            className="rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-600 border border-red-200 hover:bg-red-100 transition-all duration-150 disabled:opacity-40">
             {rebooting ? 'Rebooting...' : 'Confirm Reboot'}
           </button>
-          <button onClick={() => setConfirm(false)} className="rounded-pill bg-white/30 backdrop-blur-sm px-4 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200">
+          <button onClick={() => setConfirm(false)}
+            className="bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-bold text-slate-500 shadow-sm transition-all active:scale-95 text-sm">
             Cancel
           </button>
         </div>
@@ -80,7 +81,7 @@ function RebootTool() {
 export default function ToolsPage() {
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-text-primary">Tools</h1>
+      <h1 className="text-3xl font-bold text-slate-800">Tools</h1>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <UsbTool />
         <RebootTool />

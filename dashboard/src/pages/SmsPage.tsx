@@ -73,10 +73,10 @@ export default function SmsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">SMS</h1>
+        <h1 className="text-3xl font-bold text-slate-800">SMS</h1>
         <button
           onClick={() => { setComposing(true); setSelected(null) }}
-          className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200"
+          className="bg-blue-500 text-white py-3.5 rounded-2xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-600 active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm"
         >
           + New SMS
         </button>
@@ -87,26 +87,26 @@ export default function SmsPage() {
         <Card title="New Message">
           <form onSubmit={send} className="space-y-3">
             <div>
-              <label className="mb-0.5 block text-xs text-text-muted">To</label>
+              <label className="mb-0.5 block text-xs text-slate-400">To</label>
               <input value={to} onChange={e => setTo(e.target.value)} required
-                className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all"
                 placeholder="+1234567890" />
             </div>
             <div>
-              <label className="mb-0.5 block text-xs text-text-muted">Message</label>
+              <label className="mb-0.5 block text-xs text-slate-400">Message</label>
               <textarea value={text} onChange={e => setText(e.target.value)} required rows={4}
-                className="w-full resize-none rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-full resize-none px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all"
                 placeholder="Type a message…" />
-              <p className="mt-0.5 text-right text-xs text-text-muted">{text.length}/160</p>
+              <p className="mt-0.5 text-right text-xs text-slate-400">{text.length}/160</p>
             </div>
             {sendMsg && <p className={`text-sm ${sendMsg === 'Sent!' ? 'text-green-500' : 'text-red-500'}`}>{sendMsg}</p>}
             <div className="flex gap-2">
               <button type="submit" disabled={sending || !to || !text}
-                className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
+                className="bg-blue-500 text-white py-3.5 rounded-2xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-600 active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm">
                 {sending ? 'Sending…' : 'Send'}
               </button>
               <button type="button" onClick={() => setComposing(false)}
-                className="rounded-pill bg-white/30 backdrop-blur-sm px-4 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200">
+                className="bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-bold text-slate-500 shadow-sm transition-all active:scale-95 text-sm">
                 Cancel
               </button>
             </div>
@@ -121,30 +121,30 @@ export default function SmsPage() {
           title={box === BOX_INBOX ? `Inbox${unread ? ` (${unread})` : ''}` : 'Sent'}
           action={
             <div className="flex gap-2">
-              <button onClick={() => setBox(BOX_INBOX)} className={`text-xs ${box === BOX_INBOX ? 'text-primary' : 'text-text-muted hover:text-text-primary transition-colors'}`}>Inbox</button>
-              <button onClick={() => setBox(BOX_SENT)} className={`text-xs ${box === BOX_SENT ? 'text-primary' : 'text-text-muted hover:text-text-primary transition-colors'}`}>Sent</button>
+              <button onClick={() => setBox(BOX_INBOX)} className={`text-xs ${box === BOX_INBOX ? 'text-blue-600' : 'text-slate-400 hover:text-slate-800 transition-colors'}`}>Inbox</button>
+              <button onClick={() => setBox(BOX_SENT)} className={`text-xs ${box === BOX_SENT ? 'text-blue-600' : 'text-slate-400 hover:text-slate-800 transition-colors'}`}>Sent</button>
             </div>
           }
         >
           {loading ? (
-            <p className="text-sm text-text-muted">Loading…</p>
+            <p className="text-sm text-slate-400">Loading…</p>
           ) : messages.length === 0 ? (
-            <p className="text-sm text-text-muted">No messages</p>
+            <p className="text-sm text-slate-400">No messages</p>
           ) : (
-            <ul className="divide-y divide-divider -mx-4">
+            <ul className="divide-y divide-slate-100/60 -mx-4">
               {messages.map(m => (
                 <li key={m.id}
                   onClick={() => openMsg(m)}
-                  className={`cursor-pointer px-4 py-3 transition-colors hover:bg-white/20 ${selected?.id === m.id ? 'bg-white/30' : ''}`}
+                  className={`cursor-pointer px-4 py-3 transition-colors hover:bg-slate-50/60 ${selected?.id === m.id ? 'bg-blue-50' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <p className={`text-sm truncate ${!m.read ? 'font-semibold text-text-primary' : 'text-text-secondary'}`}>
+                    <p className={`text-sm truncate ${!m.read ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>
                       {m.from ?? '—'}
                     </p>
-                    {!m.read && <span className="h-2 w-2 rounded-full bg-primary flex-shrink-0 mt-1" />}
+                    {!m.read && <span className="h-2 w-2 rounded-full bg-blue-500 flex-shrink-0 mt-1" />}
                   </div>
-                  <p className="mt-0.5 text-xs text-text-muted truncate">{m.text}</p>
-                  <p className="mt-0.5 text-xs text-text-muted">{formatDate(m.date)}</p>
+                  <p className="mt-0.5 text-xs text-slate-400 truncate">{m.text}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">{formatDate(m.date)}</p>
                 </li>
               ))}
             </ul>
@@ -157,26 +157,26 @@ export default function SmsPage() {
             <div className="space-y-3">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm font-medium text-text-primary">From: {selected.from ?? '—'}</p>
-                  <p className="text-xs text-text-muted">{formatDate(selected.date)}</p>
+                  <p className="text-sm font-medium text-slate-800">From: {selected.from ?? '—'}</p>
+                  <p className="text-xs text-slate-400">{formatDate(selected.date)}</p>
                 </div>
                 <button onClick={() => deleteMsg(selected.id)}
-                  className="rounded-pill bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">
+                  className="rounded-xl bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">
                   Delete
                 </button>
               </div>
-              <div className="rounded-pill bg-white/20 p-4">
-                <p className="whitespace-pre-wrap text-sm text-text-primary">{selected.text}</p>
+              <div className="rounded-2xl bg-slate-50/50 p-4">
+                <p className="whitespace-pre-wrap text-sm text-slate-800">{selected.text}</p>
               </div>
               <button
                 onClick={() => { setComposing(true); setTo(selected.from ?? ''); setSelected(null) }}
-                className="rounded-pill bg-white/30 backdrop-blur-sm px-4 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200"
+                className="bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-bold text-slate-500 shadow-sm transition-all active:scale-95 text-sm"
               >
                 Reply
               </button>
             </div>
           ) : (
-            <p className="text-sm text-text-muted">No message selected</p>
+            <p className="text-sm text-slate-400">No message selected</p>
           )}
         </Card>
       </div>

@@ -83,23 +83,23 @@ function SignalLoggerTab() {
   return (
     <div className="space-y-4">
       <Card title="Signal Logger">
-        <p className="text-xs text-text-muted mb-4">
+        <p className="text-xs text-slate-400 mb-4">
           Continuously logs signal metrics (RSRP, RSRQ, SINR, RSSI, bands, CA) to CSV. Maximum 24 hours.
         </p>
 
         {!isRunning && (
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-xs text-text-muted mb-1">Duration</label>
+              <label className="block text-xs text-slate-400 mb-1">Duration</label>
               <select value={duration} onChange={e => setDuration(Number(e.target.value))}
-                className="w-full rounded-pill border border-divider bg-white/40 px-3 py-2 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all">
                 {DURATION_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-text-muted mb-1">Interval</label>
+              <label className="block text-xs text-slate-400 mb-1">Interval</label>
               <select value={interval} onChange={e => setInterval_(Number(e.target.value))}
-                className="w-full rounded-pill border border-divider bg-white/40 px-3 py-2 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all">
                 {INTERVAL_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
@@ -109,17 +109,17 @@ function SignalLoggerTab() {
         <div className="flex gap-2">
           {!isRunning ? (
             <button onClick={handleStart} disabled={loading}
-              className="rounded-pill bg-green-500/10 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-500/20 transition-all duration-200 disabled:opacity-40">
+              className="bg-green-50 border border-green-200 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-100 transition-all duration-200 disabled:opacity-40 rounded-xl">
               {loading ? 'Starting...' : 'Start Logging'}
             </button>
           ) : (
             <button onClick={handleStop}
-              className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">
+              className="bg-red-50 border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-all duration-200 rounded-xl">
               Stop Logging
             </button>
           )}
           <button onClick={handleDownload}
-            className="rounded-pill bg-white/30 backdrop-blur-sm px-4 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200">
+            className="bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-bold text-slate-500 shadow-sm transition-all active:scale-95 text-sm">
             Download CSV
           </button>
         </div>
@@ -129,28 +129,28 @@ function SignalLoggerTab() {
         <Card title="Status">
           <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Status</p>
-              <p className={`font-bold ${isRunning ? 'text-green-500' : 'text-text-muted'}`}>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Status</p>
+              <p className={`font-bold ${isRunning ? 'text-green-500' : 'text-slate-400'}`}>
                 {isRunning ? 'Running' : 'Stopped'}
               </p>
             </div>
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Samples</p>
-              <p className="text-2xl font-bold text-text-primary">{status.samples ?? 0}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Samples</p>
+              <p className="text-2xl font-bold text-slate-800">{status.samples ?? 0}</p>
             </div>
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Elapsed</p>
-              <p className="font-mono text-text-secondary">{formatDuration(status.elapsed_secs)}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Elapsed</p>
+              <p className="font-mono text-slate-600">{formatDuration(status.elapsed_secs)}</p>
             </div>
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Duration</p>
-              <p className="font-mono text-text-secondary">{formatDuration(status.duration_secs)}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Duration</p>
+              <p className="font-mono text-slate-600">{formatDuration(status.duration_secs)}</p>
             </div>
           </div>
           {isRunning && (
             <div className="mt-3">
-              <div className="h-2 rounded-full bg-white/30 overflow-hidden">
-                <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-500"
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full rounded-full bg-blue-500 transition-all duration-500"
                   style={{ width: `${Math.min(100, (status.elapsed_secs / status.duration_secs) * 100)}%` }} />
               </div>
             </div>
@@ -201,23 +201,23 @@ function ConnectionEventsTab() {
   return (
     <div className="space-y-4">
       <Card title="Connection Event Logger">
-        <p className="text-xs text-text-muted mb-4">
+        <p className="text-xs text-slate-400 mb-4">
           Monitors connection state and logs events: cell handovers, band changes, NR connect/disconnect, PCI changes. Maximum 24 hours.
         </p>
 
         {!isRunning && (
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-xs text-text-muted mb-1">Duration</label>
+              <label className="block text-xs text-slate-400 mb-1">Duration</label>
               <select value={duration} onChange={e => setDuration(Number(e.target.value))}
-                className="w-full rounded-pill border border-divider bg-white/40 px-3 py-2 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all">
                 {DURATION_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-xs text-text-muted mb-1">Poll Interval</label>
+              <label className="block text-xs text-slate-400 mb-1">Poll Interval</label>
               <select value={interval} onChange={e => setInterval_(Number(e.target.value))}
-                className="w-full rounded-pill border border-divider bg-white/40 px-3 py-2 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all">
                 {INTERVAL_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
@@ -227,17 +227,17 @@ function ConnectionEventsTab() {
         <div className="flex gap-2">
           {!isRunning ? (
             <button onClick={handleStart} disabled={loading}
-              className="rounded-pill bg-green-500/10 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-500/20 transition-all duration-200 disabled:opacity-40">
+              className="bg-green-50 border border-green-200 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-100 transition-all duration-200 disabled:opacity-40 rounded-xl">
               {loading ? 'Starting...' : 'Start Monitoring'}
             </button>
           ) : (
             <button onClick={handleStop}
-              className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">
+              className="bg-red-50 border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100 transition-all duration-200 rounded-xl">
               Stop Monitoring
             </button>
           )}
           <button onClick={handleDownload}
-            className="rounded-pill bg-white/30 backdrop-blur-sm px-4 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200">
+            className="bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-xl font-bold text-slate-500 shadow-sm transition-all active:scale-95 text-sm">
             Download CSV
           </button>
         </div>
@@ -247,28 +247,28 @@ function ConnectionEventsTab() {
         <Card title="Status">
           <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Status</p>
-              <p className={`font-bold ${isRunning ? 'text-green-500' : 'text-text-muted'}`}>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Status</p>
+              <p className={`font-bold ${isRunning ? 'text-green-500' : 'text-slate-400'}`}>
                 {isRunning ? 'Running' : 'Stopped'}
               </p>
             </div>
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Events</p>
-              <p className="text-2xl font-bold text-text-primary">{status.events ?? 0}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Events</p>
+              <p className="text-2xl font-bold text-slate-800">{status.events ?? 0}</p>
             </div>
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Elapsed</p>
-              <p className="font-mono text-text-secondary">{formatDuration(status.elapsed_secs)}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Elapsed</p>
+              <p className="font-mono text-slate-600">{formatDuration(status.elapsed_secs)}</p>
             </div>
             <div>
-              <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Duration</p>
-              <p className="font-mono text-text-secondary">{formatDuration(status.duration_secs)}</p>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Duration</p>
+              <p className="font-mono text-slate-600">{formatDuration(status.duration_secs)}</p>
             </div>
           </div>
           {isRunning && (
             <div className="mt-3">
-              <div className="h-2 rounded-full bg-white/30 overflow-hidden">
-                <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-500"
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-full rounded-full bg-blue-500 transition-all duration-500"
                   style={{ width: `${Math.min(100, (status.elapsed_secs / status.duration_secs) * 100)}%` }} />
               </div>
             </div>
@@ -313,22 +313,22 @@ function AtConsoleTab() {
   return (
     <div className="space-y-4">
       <Card title="AT Command Console">
-        <p className="text-xs text-text-muted mb-4">
+        <p className="text-xs text-slate-400 mb-4">
           Send AT commands directly to the modem. Response timeout is configurable per command.
         </p>
 
         <div ref={outputRef}
-          className="mb-4 h-80 overflow-y-auto rounded-glass border border-divider bg-white/10 backdrop-blur-sm p-3 font-mono text-xs">
+          className="mb-4 h-80 overflow-y-auto rounded-2xl border border-slate-200/60 bg-slate-50 p-3 font-mono text-xs">
           {history.length === 0 && (
-            <p className="text-text-muted">No commands sent yet. Try: AT, ATI, AT+COPS?, AT+CSQ, AT+CGDCONT?</p>
+            <p className="text-slate-400">No commands sent yet. Try: AT, ATI, AT+COPS?, AT+CSQ, AT+CGDCONT?</p>
           )}
           {history.map((h, i) => (
             <div key={i} className="mb-2">
-              <p className="text-primary">{'> '}{h.cmd}</p>
+              <p className="text-blue-600">{'> '}{h.cmd}</p>
               <p className={`whitespace-pre-wrap ${h.error ? 'text-red-500' : 'text-green-500'}`}>{h.response}</p>
             </div>
           ))}
-          {loading && <p className="text-text-muted animate-pulse">Waiting for response...</p>}
+          {loading && <p className="text-slate-400 animate-pulse">Waiting for response...</p>}
         </div>
 
         <div className="flex gap-2">
@@ -336,18 +336,18 @@ function AtConsoleTab() {
             type="text" value={command} onChange={e => setCommand(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="AT+COPS?"
-            className="flex-1 rounded-pill border border-divider bg-white/40 px-3 py-2 font-mono text-sm text-text-primary placeholder-text-muted backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all font-mono placeholder-slate-400"
             autoComplete="off"
           />
           <select value={timeout} onChange={e => setTimeout_(Number(e.target.value))}
-            className="rounded-pill border border-divider bg-white/40 px-2 py-2 text-xs text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+            className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-xs transition-all">
             <option value={2}>2s</option>
             <option value={5}>5s</option>
             <option value={10}>10s</option>
             <option value={30}>30s</option>
           </select>
           <button onClick={handleSend} disabled={loading || !command.trim()}
-            className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
+            className="bg-blue-500 text-white py-3.5 rounded-2xl font-bold shadow-lg shadow-blue-500/20 hover:bg-blue-600 active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm">
             Send
           </button>
         </div>
@@ -369,13 +369,13 @@ export default function AdvancedPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-lg font-semibold text-text-primary">Advanced</h1>
+      <h1 className="text-3xl font-bold text-slate-800">Advanced</h1>
 
-      <div className="glass-subtle !rounded-glass p-1 flex gap-1">
+      <div className="bg-slate-50/50 rounded-2xl p-1 flex gap-1">
         {tabs.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
-            className={`rounded-pill px-4 py-2 text-sm font-medium transition-all duration-200 ${
-              tab === t.id ? 'bg-white/60 text-text-primary' : 'text-text-muted hover:text-text-secondary'
+            className={`rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 ${
+              tab === t.id ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400 hover:text-slate-600'
             }`}>
             {t.label}
           </button>

@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { api, type WifiAll, type WifiBand } from '../api'
 import Card from '../components/Card'
 
+const INPUT_CLS = 'w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all'
+const SELECT_CLS = 'w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-500/10 focus:border-blue-400 outline-none text-sm transition-all'
+
 function BandCard({ label, band, suffix, onRefresh }: { label: string; band: WifiBand; suffix: string; onRefresh: () => void }) {
   const [editing, setEditing] = useState(false)
   const [ssid, setSsid] = useState('')
@@ -35,7 +38,7 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
       if (htmode) settings[`htmode_${suffix}`] = htmode
       if (txpower) settings[`txpower_${suffix}`] = txpower
       await api.wifiSet(settings)
-      setMsg('Saved — WiFi may reconnect')
+      setMsg('Saved \u2014 WiFi may reconnect')
       setEditing(false)
       onRefresh()
     } catch (e) {
@@ -70,12 +73,12 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
   return (
     <Card title={label} action={
       !editing ? (
-        <button onClick={() => setEditing(true)} className="text-xs text-primary hover:text-primary-hover transition-colors">Edit</button>
+        <button onClick={() => setEditing(true)} className="text-xs text-blue-600 hover:text-blue-700 transition-colors font-bold">Edit</button>
       ) : (
         <div className="flex gap-2">
-          <button onClick={() => setEditing(false)} className="text-xs text-text-muted hover:text-text-primary transition-colors">Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="text-xs text-primary hover:text-primary-hover transition-colors">
-            {saving ? 'Saving…' : 'Save'}
+          <button onClick={() => setEditing(false)} className="text-xs text-slate-400 hover:text-slate-800 transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="text-xs text-blue-600 hover:text-blue-700 transition-colors font-bold">
+            {saving ? 'Saving\u2026' : 'Save'}
           </button>
         </div>
       )
@@ -83,70 +86,61 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
       {msg && <p className={`mb-2 text-xs ${msg.startsWith('Saved') || msg.includes('abled') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>}
 
       <div className="space-y-3">
-        {/* Status + enable/disable */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${band.enabled ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-sm text-text-secondary">{band.enabled ? 'Enabled' : 'Disabled'}</span>
+            <span className="text-sm text-slate-600">{band.enabled ? 'Enabled' : 'Disabled'}</span>
             {band.clients != null && (
-              <span className="text-xs text-text-muted">({band.clients} client{band.clients !== 1 ? 's' : ''})</span>
+              <span className="text-xs text-slate-400">({band.clients} client{band.clients !== 1 ? 's' : ''})</span>
             )}
           </div>
           <button onClick={toggleRadio} disabled={saving}
-            className={`rounded-pill px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
+            className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all duration-150 ${
               band.enabled
-                ? 'bg-red-500/10 text-red-600 hover:bg-red-500/20'
-                : 'bg-green-500/10 text-green-600 hover:bg-green-500/20'
+                ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'
             } disabled:opacity-40`}>
             {band.enabled ? 'Disable' : 'Enable'}
           </button>
         </div>
 
-        {/* SSID */}
         <div>
-          <label className="mb-0.5 block text-xs text-text-muted">SSID</label>
+          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5 block">SSID</label>
           {editing ? (
-            <input value={ssid} onChange={e => setSsid(e.target.value)}
-              className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+            <input value={ssid} onChange={e => setSsid(e.target.value)} className={INPUT_CLS} />
           ) : (
-            <p className="text-sm font-medium text-text-primary">{band.ssid ?? '—'}</p>
+            <p className="text-sm font-medium text-slate-800">{band.ssid ?? '\u2014'}</p>
           )}
         </div>
 
-        {/* Password */}
         <div>
-          <label className="mb-0.5 block text-xs text-text-muted">Password</label>
+          <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5 block">Password</label>
           {editing ? (
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} className={INPUT_CLS} />
           ) : (
-            <p className="text-sm text-text-primary font-mono">{band.password ? '••••••••' : '—'}</p>
+            <p className="text-sm text-slate-800 font-mono">{band.password ? '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' : '\u2014'}</p>
           )}
         </div>
 
-        {/* Advanced settings (edit mode) */}
         {editing ? (
-          <div className="space-y-3 border-t border-divider pt-3">
-            <p className="text-xs font-medium text-text-muted">Advanced</p>
+          <div className="space-y-3 border-t border-slate-200/60 pt-3">
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Advanced</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-0.5 block text-xs text-text-muted">Channel</label>
-                <select value={channel} onChange={e => setChannel(e.target.value)}
-                  className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5 block">Channel</label>
+                <select value={channel} onChange={e => setChannel(e.target.value)} className={SELECT_CLS}>
                   {channels.map(c => <option key={c} value={c}>{c === 'auto' ? 'Auto' : c}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-0.5 block text-xs text-text-muted">Bandwidth</label>
-                <select value={htmode} onChange={e => setHtmode(e.target.value)}
-                  className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5 block">Bandwidth</label>
+                <select value={htmode} onChange={e => setHtmode(e.target.value)} className={SELECT_CLS}>
                   {htmodes.map(m => <option key={m} value={m}>{m.replace('HT', '')} MHz</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-0.5 block text-xs text-text-muted">TX Power</label>
-                <select value={txpower} onChange={e => setTxpower(e.target.value)}
-                  className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
+                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5 block">TX Power</label>
+                <select value={txpower} onChange={e => setTxpower(e.target.value)} className={SELECT_CLS}>
                   <option value="">Default</option>
                   <option value="100">100%</option>
                   <option value="75">75%</option>
@@ -156,16 +150,16 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
               </div>
               <div className="flex items-center gap-2 pt-5">
                 <input type="checkbox" id={`hidden_${suffix}`} checked={hidden} onChange={e => setHidden(e.target.checked)}
-                  className="h-4 w-4 rounded border-divider bg-white/40 text-primary" />
-                <label htmlFor={`hidden_${suffix}`} className="text-xs text-text-muted">Hidden SSID</label>
+                  className="h-4 w-4 rounded border-slate-200 bg-slate-50 text-blue-500" />
+                <label htmlFor={`hidden_${suffix}`} className="text-xs text-slate-400 font-medium">Hidden SSID</label>
               </div>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 text-sm">
             <Info label="Channel" value={band.channel != null ? String(band.channel) : 'Auto'} />
-            <Info label="Bandwidth" value={band.bandwidth ?? '—'} />
-            <Info label="Security" value={band.security ?? '—'} />
+            <Info label="Bandwidth" value={band.bandwidth ?? '\u2014'} />
+            <Info label="Security" value={band.security ?? '\u2014'} />
             <Info label="Hidden" value={band.hidden ? 'Yes' : 'No'} />
           </div>
         )}
@@ -177,8 +171,8 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-text-muted">{label}</p>
-      <p className="text-text-primary">{value}</p>
+      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{label}</p>
+      <p className="text-slate-800">{value}</p>
     </div>
   )
 }
@@ -192,18 +186,18 @@ export default function WiFiPage() {
 
   useEffect(() => { fetchWifi() }, [fetchWifi])
 
-  if (!wifi) return <div className="text-text-muted text-sm">Loading…</div>
+  if (!wifi) return <div className="text-slate-400 text-sm">Loading\u2026</div>
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-text-primary">Wi-Fi</h1>
+      <h1 className="text-3xl font-bold text-slate-800">Wi-Fi</h1>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <BandCard label="2.4 GHz" band={wifi.band_2g} suffix="2g" onRefresh={fetchWifi} />
         <BandCard label="5 GHz" band={wifi.band_5g} suffix="5g" onRefresh={fetchWifi} />
       </div>
       {wifi.guest_ssid && (
         <Card title="Guest Network">
-          <p className="text-sm text-text-secondary">SSID: <span className="font-medium text-text-primary">{wifi.guest_ssid}</span></p>
+          <p className="text-sm text-slate-600">SSID: <span className="font-medium text-slate-800">{wifi.guest_ssid}</span></p>
         </Card>
       )}
     </div>

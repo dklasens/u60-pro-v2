@@ -69,16 +69,16 @@ export default function AlertBanner() {
   return (
     <div className="space-y-1.5 mb-3">
       {visible.map((a, i) => (
-        <div key={i} className={`glass-subtle flex items-center gap-2.5 !rounded-glass px-4 py-2.5 text-xs font-medium ${
+        <div key={i} className={`bg-slate-50/80 backdrop-blur-sm rounded-2xl flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium border-l-4 ${
           a.level === 'error'
-            ? '!border-l-4 !border-l-red-400 text-red-700'
-            : '!border-l-4 !border-l-amber-400 text-amber-700'
+            ? 'border-l-red-400 text-red-700'
+            : 'border-l-amber-400 text-amber-700'
         }`}>
           <span>{a.level === 'error' ? '\u26a0' : '\u26a0'}</span>
           <span className="flex-1">{a.message}</span>
           <button
             onClick={() => setDismissed(prev => new Set(prev).add(a.message))}
-            className="ml-2 text-text-muted hover:text-text-primary transition-colors"
+            className="ml-2 text-slate-400 hover:text-slate-800 transition-colors"
           >
             &times;
           </button>

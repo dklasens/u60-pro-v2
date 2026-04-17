@@ -70,20 +70,20 @@ export default function Sidebar({ page, onNavigate, open }: Props) {
   return (
     <aside className={`
       fixed inset-y-0 left-0 z-30 flex w-60 flex-col
-      glass-elevated !rounded-none !border-l-0 !border-t-0 !border-b-0
+      bg-white/95 shadow-xl border-r border-slate-200/60
       transition-transform duration-300 ease-out
       lg:static lg:translate-x-0
       ${open ? 'translate-x-0' : '-translate-x-full'}
     `}>
-      <div className="flex items-center gap-3 border-b border-divider px-5 py-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-glass bg-gradient-to-br from-primary to-accent">
+      <div className="flex items-center gap-3 border-b border-slate-200/60 px-5 py-5">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500 shadow-lg shadow-blue-500/20">
           <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
           </svg>
         </div>
         <div>
-          <p className="text-sm font-semibold text-text-primary">U60 Pro</p>
-          <p className="text-xs text-text-muted font-mono">192.168.0.1</p>
+          <p className="text-sm font-bold text-slate-800">U60 Pro</p>
+          <p className="text-xs text-slate-400 font-mono">192.168.0.1</p>
         </div>
       </div>
 
@@ -94,11 +94,11 @@ export default function Sidebar({ page, onNavigate, open }: Props) {
               <button
                 onClick={() => onNavigate(item.id)}
                 className={`
-                  flex w-full items-center gap-3 rounded-pill px-3.5 py-2.5 text-sm font-medium
-                  transition-all duration-200 active:scale-[0.98]
+                  flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium
+                  transition-all duration-150 active:scale-[0.98]
                   ${page === item.id
-                    ? 'bg-primary-subtle text-primary shadow-sm'
-                    : 'text-text-muted hover:bg-white/30 hover:text-text-primary'}
+                    ? 'bg-blue-50 text-blue-600 shadow-sm'
+                    : 'text-slate-400 hover:bg-slate-50 hover:text-slate-800'}
                 `}
               >
                 {item.icon}
@@ -109,8 +109,8 @@ export default function Sidebar({ page, onNavigate, open }: Props) {
         </ul>
       </nav>
 
-      <div className="border-t border-divider px-5 py-3">
-        <p className="text-[10px] text-text-muted">ZTE U60 Pro Dashboard v2</p>
+      <div className="border-t border-slate-200/60 px-5 py-3">
+        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">ZTE U60 Pro Dashboard v2</p>
       </div>
     </aside>
   )

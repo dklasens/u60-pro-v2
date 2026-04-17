@@ -3,7 +3,7 @@ import { api, type SignalInfo, type CarrierComponent } from '../api'
 import Card from '../components/Card'
 
 function rsrpColor(v?: number) {
-  if (v == null) return 'text-text-muted'
+  if (v == null) return 'text-slate-400'
   if (v > -80) return 'text-green-500'
   if (v > -90) return 'text-lime-500'
   if (v > -100) return 'text-yellow-500'
@@ -12,14 +12,14 @@ function rsrpColor(v?: number) {
 }
 
 function rsrqColor(v?: number) {
-  if (v == null) return 'text-text-muted'
+  if (v == null) return 'text-slate-400'
   if (v > -10) return 'text-green-500'
   if (v > -15) return 'text-yellow-500'
   return 'text-red-500'
 }
 
 function sinrColor(v?: number) {
-  if (v == null) return 'text-text-muted'
+  if (v == null) return 'text-slate-400'
   if (v > 20) return 'text-green-500'
   if (v > 10) return 'text-lime-500'
   if (v > 0) return 'text-yellow-500'
@@ -52,7 +52,7 @@ function Tooltip({ text, children }: { text: string; children: React.ReactNode }
       onTouchStart={() => setShow(s => !s)}>
       {children}
       {show && (
-        <span className="absolute bottom-full left-1/2 z-20 mb-2 w-60 -translate-x-1/2 glass-subtle !rounded-pill px-2 py-1 text-xs text-text-secondary shadow-glass">
+        <span className="absolute bottom-full left-1/2 z-20 mb-2 w-60 -translate-x-1/2 bg-slate-50/80 backdrop-blur-sm rounded-xl px-2 py-1 text-xs text-slate-600 shadow-sm border border-slate-200/60">
           {text}
         </span>
       )}
@@ -94,15 +94,15 @@ function rssiTip() {
 function CarrierCard({ carrier, tech }: { carrier: CarrierComponent; tech: 'LTE' | 'NR' }) {
   const isPcc = carrier.label === 'PCC'
   const badgeColor = tech === 'NR'
-    ? 'rounded-pill bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700'
-    : 'rounded-pill bg-blue-100 px-2 py-0.5 text-xs font-medium text-primary'
+    ? 'rounded-lg bg-purple-100 px-2 py-0.5 text-[9px] font-bold text-purple-700 border border-purple-200 shadow-sm'
+    : 'rounded-lg bg-blue-100 px-2 py-0.5 text-[9px] font-bold text-blue-700 border border-blue-200 shadow-sm'
   const pccBadge = isPcc
-    ? 'rounded-pill bg-primary-subtle px-2 py-0.5 text-xs font-medium text-primary'
-    : 'rounded-pill bg-white/30 px-2 py-0.5 text-xs font-medium text-text-secondary'
+    ? 'rounded-lg bg-blue-50 px-2 py-0.5 text-[9px] font-bold text-blue-600 border border-blue-200 shadow-sm'
+    : 'rounded-lg bg-slate-50 px-2 py-0.5 text-[9px] font-bold text-slate-600 border border-slate-200 shadow-sm'
 
   return (
-    <div className="glass-subtle rounded-glass shadow-glass">
-      <div className="flex items-center gap-2 border-b border-divider px-4 py-2.5">
+    <div className="bg-white/95 rounded-2xl shadow-xl border border-slate-200/50 overflow-hidden ring-1 ring-slate-900/5">
+      <div className="flex items-center gap-2 bg-slate-50/80 backdrop-blur-md px-4 py-2.5 border-b border-slate-200/60">
         <span className={badgeColor}>
           {carrier.band}
         </span>
@@ -110,62 +110,62 @@ function CarrierCard({ carrier, tech }: { carrier: CarrierComponent; tech: 'LTE'
           {carrier.label}
         </span>
         {carrier.ul_configured !== undefined && (
-          <span className={`rounded-pill px-1.5 py-0.5 text-[10px] font-semibold ${carrier.ul_configured ? 'bg-green-500/20 text-green-500' : 'bg-white/20 text-text-muted'}`}>
+          <span className={`rounded-lg px-1.5 py-0.5 text-[9px] font-bold border shadow-sm ${carrier.ul_configured ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
             UL {carrier.ul_configured ? '\u2713' : '\u2717'}
           </span>
         )}
         {carrier.active !== undefined && (
-          <span className={`rounded-pill px-1.5 py-0.5 text-[10px] font-semibold ${carrier.active ? 'bg-green-500/20 text-green-500' : 'bg-white/20 text-text-muted'}`}>
+          <span className={`rounded-lg px-1.5 py-0.5 text-[9px] font-bold border shadow-sm ${carrier.active ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>
             {carrier.active ? 'Active' : 'Idle'}
           </span>
         )}
-        <span className="ml-auto text-xs text-text-muted">PCI {carrier.pci}</span>
+        <span className="ml-auto text-xs text-slate-400">PCI {carrier.pci}</span>
       </div>
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3">
         <div>
           <Tooltip text={rsrpTip(carrier.rsrp)}>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide underline decoration-dotted decoration-text-muted/40 underline-offset-2">RSRP</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest underline decoration-dotted decoration-slate-300 underline-offset-2">RSRP</p>
           </Tooltip>
           <p className={`text-2xl font-bold ${rsrpColor(carrier.rsrp)}`}>{fmt(carrier.rsrp, ' dBm')}</p>
         </div>
         <div>
           <Tooltip text={rsrqTip(carrier.rsrq)}>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide underline decoration-dotted decoration-text-muted/40 underline-offset-2">RSRQ</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest underline decoration-dotted decoration-slate-300 underline-offset-2">RSRQ</p>
           </Tooltip>
           <p className={`text-2xl font-bold ${rsrqColor(carrier.rsrq)}`}>{fmt(carrier.rsrq, ' dB')}</p>
         </div>
         <div>
           <Tooltip text={sinrTip(carrier.sinr)}>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide underline decoration-dotted decoration-text-muted/40 underline-offset-2">SINR</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest underline decoration-dotted decoration-slate-300 underline-offset-2">SINR</p>
           </Tooltip>
           <p className={`text-2xl font-bold ${sinrColor(carrier.sinr)}`}>{fmt(carrier.sinr, ' dB')}</p>
         </div>
         <div>
           <Tooltip text={rssiTip()}>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide underline decoration-dotted decoration-text-muted/40 underline-offset-2">RSSI</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest underline decoration-dotted decoration-slate-300 underline-offset-2">RSSI</p>
           </Tooltip>
-          <p className="text-2xl font-bold text-text-secondary">{fmt(carrier.rssi, ' dBm')}</p>
+          <p className="text-2xl font-bold text-slate-600">{fmt(carrier.rssi, ' dBm')}</p>
         </div>
       </div>
 
-      <div className="border-t border-divider px-4 py-2.5">
+      <div className="border-t border-slate-200/60 px-4 py-2.5">
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
           <div className="flex justify-between">
-            <span className="text-text-muted">BW</span>
-            <span className="text-text-secondary font-medium">{carrier.bandwidth}</span>
+            <span className="text-slate-400">BW</span>
+            <span className="text-slate-600 font-medium">{carrier.bandwidth}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-text-muted">{tech === 'NR' ? 'ARFCN' : 'EARFCN'}</span>
-            <span className="font-mono text-text-secondary">{carrier.earfcn || '\u2014'}</span>
+            <span className="text-slate-400">{tech === 'NR' ? 'ARFCN' : 'EARFCN'}</span>
+            <span className="font-mono text-slate-600">{carrier.earfcn || '\u2014'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-text-muted">Freq</span>
-            <span className="text-text-secondary">{fmtFreq(carrier.freq)}</span>
+            <span className="text-slate-400">Freq</span>
+            <span className="text-slate-600">{fmtFreq(carrier.freq)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-text-muted">PCI</span>
-            <span className="font-mono text-text-secondary">{carrier.pci}</span>
+            <span className="text-slate-400">PCI</span>
+            <span className="font-mono text-slate-600">{carrier.pci}</span>
           </div>
         </div>
       </div>
@@ -178,11 +178,11 @@ function CellInfoTable({ carriers, tech }: { carriers: CarrierComponent[]; tech:
   const isNR = tech === 'NR'
   return (
     <div className={isNR ? 'mb-3' : ''}>
-      <p className={`mb-2 text-xs font-medium uppercase ${isNR ? 'text-purple-600' : 'text-primary'}`}>{isNR ? 'NR 5G' : 'LTE'} Carriers</p>
+      <p className={`mb-2 text-[9px] font-bold uppercase tracking-widest ${isNR ? 'text-purple-600' : 'text-blue-600'}`}>{isNR ? 'NR 5G' : 'LTE'} Carriers</p>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-divider text-text-muted">
+            <tr className="border-b border-slate-200/60 text-slate-400">
               <th className="pb-1.5 pr-3">Type</th>
               <th className="pb-1.5 pr-3">Band</th>
               <th className="pb-1.5 pr-3">PCI</th>
@@ -197,21 +197,21 @@ function CellInfoTable({ carriers, tech }: { carriers: CarrierComponent[]; tech:
           </thead>
           <tbody>
             {carriers.map((c, i) => (
-              <tr key={i} className="border-b border-divider last:border-0 hover:bg-white/20 transition-colors">
+              <tr key={i} className="border-b border-slate-100/60 last:border-0 hover:bg-slate-50/60 transition-colors">
                 <td className="py-1.5 pr-3">
-                  <span className={`rounded-pill px-2 py-0.5 text-xs font-medium ${c.label === 'PCC' ? 'bg-primary-subtle text-primary' : 'bg-white/30 text-text-secondary'}`}>
+                  <span className={`rounded-lg px-2 py-0.5 text-[9px] font-bold border shadow-sm ${c.label === 'PCC' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                     {c.label}
                   </span>
                 </td>
-                <td className={`py-1.5 pr-3 font-medium ${isNR ? 'text-purple-600' : 'text-primary'}`}>{c.band}</td>
-                <td className="py-1.5 pr-3 text-text-primary">{c.pci}</td>
-                <td className="py-1.5 pr-3 text-text-primary">{c.earfcn}</td>
-                <td className="py-1.5 pr-3 text-text-secondary">{c.bandwidth}</td>
-                <td className="py-1.5 pr-3 text-text-secondary">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
+                <td className={`py-1.5 pr-3 font-medium ${isNR ? 'text-purple-600' : 'text-blue-600'}`}>{c.band}</td>
+                <td className="py-1.5 pr-3 text-slate-800">{c.pci}</td>
+                <td className="py-1.5 pr-3 text-slate-800">{c.earfcn}</td>
+                <td className="py-1.5 pr-3 text-slate-600">{c.bandwidth}</td>
+                <td className="py-1.5 pr-3 text-slate-600">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
                 <td className={`py-1.5 pr-3 font-medium ${rsrpColor(c.rsrp)}`}>{c.rsrp ?? '\u2014'}</td>
                 <td className={`py-1.5 pr-3 font-medium ${rsrqColor(c.rsrq)}`}>{c.rsrq ?? '\u2014'}</td>
                 <td className={`py-1.5 pr-3 font-medium ${sinrColor(c.sinr)}`}>{c.sinr ?? '\u2014'}</td>
-                <td className="py-1.5 font-medium text-text-secondary">{c.rssi ?? '\u2014'}</td>
+                <td className="py-1.5 font-medium text-slate-600">{c.rssi ?? '\u2014'}</td>
               </tr>
             ))}
           </tbody>
@@ -248,7 +248,7 @@ export default function SignalPage() {
     return () => clearInterval(id)
   }, [fetchSignal])
 
-  if (!current) return <div className="text-text-secondary text-sm">Loading...</div>
+  if (!current) return <div className="text-slate-600 text-sm">Loading...</div>
 
   const hasNR = current.nr_carriers.length > 0
   const hasLTE = current.lte_carriers.length > 0
@@ -260,27 +260,27 @@ export default function SignalPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-text-primary">Signal Monitor</h1>
+        <h1 className="text-3xl font-bold text-slate-800">Signal Monitor</h1>
         <SignalBars bars={current.signal_bars} />
       </div>
 
       <Card>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
           <div>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Connection</p>
-            <p className="text-sm font-bold text-text-primary">{current.type ?? '\u2014'}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Connection</p>
+            <p className="text-sm font-bold text-slate-800">{current.type ?? '\u2014'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Provider</p>
-            <p className="text-sm font-medium text-text-primary">{current.carrier ?? '\u2014'}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Provider</p>
+            <p className="text-sm font-medium text-slate-800">{current.carrier ?? '\u2014'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Cell ID</p>
-            <p className="text-sm font-mono text-text-secondary">{current.cell_id ?? '\u2014'}</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Cell ID</p>
+            <p className="text-sm font-mono text-slate-600">{current.cell_id ?? '\u2014'}</p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Carriers</p>
-            <p className="text-sm text-text-secondary">
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Carriers</p>
+            <p className="text-sm text-slate-600">
               {hasNR ? `${current.nr_carriers.length} NR` : ''}
               {hasNR && hasLTE ? ' + ' : ''}
               {hasLTE ? `${current.lte_carriers.length} LTE` : ''}
@@ -288,20 +288,20 @@ export default function SignalPage() {
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Bandwidth</p>
-            <p className="text-sm font-bold text-text-primary">{totalBw} MHz</p>
-            <p className="text-[10px] text-text-muted">
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Bandwidth</p>
+            <p className="text-sm font-bold text-slate-800">{totalBw} MHz</p>
+            <p className="text-[10px] text-slate-400">
               {hasNR ? `NR ${nrBw}` : ''}{hasNR && hasLTE ? ' + ' : ''}{hasLTE ? `LTE ${lteBw}` : ''} MHz
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Bands</p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Bands</p>
             <div className="flex flex-wrap gap-1 mt-0.5">
               {current.nr_carriers.map((c, i) => (
-                <span key={`nr-${i}`} className="rounded-pill bg-purple-100 px-1.5 py-0.5 text-[10px] font-semibold text-purple-700">{c.band}</span>
+                <span key={`nr-${i}`} className="rounded-lg bg-purple-100 px-1.5 py-0.5 text-[9px] font-bold text-purple-700 border border-purple-200 shadow-sm">{c.band}</span>
               ))}
               {current.lte_carriers.map((c, i) => (
-                <span key={`lte-${i}`} className="rounded-pill bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold text-primary">{c.band}</span>
+                <span key={`lte-${i}`} className="rounded-lg bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 border border-blue-200 shadow-sm">{c.band}</span>
               ))}
             </div>
           </div>
@@ -318,11 +318,11 @@ export default function SignalPage() {
       {hasNR && (
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-purple-600">5G NR</h2>
-            <span className="rounded-pill bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+            <h2 className="text-sm font-bold text-purple-600">5G NR</h2>
+            <span className="rounded-lg bg-purple-100 px-2 py-0.5 text-[9px] font-bold text-purple-700 border border-purple-200 shadow-sm">
               {current.nr_carriers.length} carrier{current.nr_carriers.length !== 1 ? 's' : ''}
             </span>
-            <span className="rounded-pill bg-purple-100/50 px-2 py-0.5 text-xs font-medium text-purple-600">
+            <span className="rounded-lg bg-purple-50 px-2 py-0.5 text-[9px] font-bold text-purple-600 border border-purple-200">
               {nrBw} MHz
             </span>
           </div>
@@ -337,12 +337,12 @@ export default function SignalPage() {
       {hasLTE && (
         <div>
           <div className="mb-3 flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-primary">LTE</h2>
-            <span className="rounded-pill bg-blue-100 px-2 py-0.5 text-xs font-medium text-primary">
+            <h2 className="text-sm font-bold text-blue-600">LTE</h2>
+            <span className="rounded-lg bg-blue-100 px-2 py-0.5 text-[9px] font-bold text-blue-700 border border-blue-200 shadow-sm">
               {current.lte_carriers.length} carrier{current.lte_carriers.length !== 1 ? 's' : ''}
               {current.lte_carriers.length > 1 ? ' (CA)' : ''}
             </span>
-            <span className="rounded-pill bg-blue-100/50 px-2 py-0.5 text-xs font-medium text-primary">
+            <span className="rounded-lg bg-blue-50 px-2 py-0.5 text-[9px] font-bold text-blue-600 border border-blue-200">
               {lteBw} MHz
             </span>
           </div>
@@ -357,30 +357,30 @@ export default function SignalPage() {
       <Card title="Signal Quality Reference">
         <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
           <div>
-            <p className="mb-1.5 font-medium text-text-primary">RSRP (dBm)</p>
+            <p className="mb-1.5 font-bold text-slate-800">RSRP (dBm)</p>
             <div className="space-y-0.5">
-              <div className="flex justify-between"><span className="text-green-500">Excellent</span><span className="text-text-muted">&gt; -80</span></div>
-              <div className="flex justify-between"><span className="text-lime-500">Good</span><span className="text-text-muted">-80 to -90</span></div>
-              <div className="flex justify-between"><span className="text-yellow-500">Fair</span><span className="text-text-muted">-90 to -100</span></div>
-              <div className="flex justify-between"><span className="text-orange-500">Poor</span><span className="text-text-muted">-100 to -110</span></div>
-              <div className="flex justify-between"><span className="text-red-500">No signal</span><span className="text-text-muted">&lt; -110</span></div>
+              <div className="flex justify-between"><span className="text-green-500">Excellent</span><span className="text-slate-400">&gt; -80</span></div>
+              <div className="flex justify-between"><span className="text-lime-500">Good</span><span className="text-slate-400">-80 to -90</span></div>
+              <div className="flex justify-between"><span className="text-yellow-500">Fair</span><span className="text-slate-400">-90 to -100</span></div>
+              <div className="flex justify-between"><span className="text-orange-500">Poor</span><span className="text-slate-400">-100 to -110</span></div>
+              <div className="flex justify-between"><span className="text-red-500">No signal</span><span className="text-slate-400">&lt; -110</span></div>
             </div>
           </div>
           <div>
-            <p className="mb-1.5 font-medium text-text-primary">RSRQ (dB)</p>
+            <p className="mb-1.5 font-bold text-slate-800">RSRQ (dB)</p>
             <div className="space-y-0.5">
-              <div className="flex justify-between"><span className="text-green-500">Good</span><span className="text-text-muted">&gt; -10</span></div>
-              <div className="flex justify-between"><span className="text-yellow-500">Fair</span><span className="text-text-muted">-10 to -15</span></div>
-              <div className="flex justify-between"><span className="text-red-500">Poor</span><span className="text-text-muted">&lt; -15</span></div>
+              <div className="flex justify-between"><span className="text-green-500">Good</span><span className="text-slate-400">&gt; -10</span></div>
+              <div className="flex justify-between"><span className="text-yellow-500">Fair</span><span className="text-slate-400">-10 to -15</span></div>
+              <div className="flex justify-between"><span className="text-red-500">Poor</span><span className="text-slate-400">&lt; -15</span></div>
             </div>
           </div>
           <div>
-            <p className="mb-1.5 font-medium text-text-primary">SINR (dB)</p>
+            <p className="mb-1.5 font-bold text-slate-800">SINR (dB)</p>
             <div className="space-y-0.5">
-              <div className="flex justify-between"><span className="text-green-500">Excellent</span><span className="text-text-muted">&gt; 20</span></div>
-              <div className="flex justify-between"><span className="text-lime-500">Good</span><span className="text-text-muted">10 to 20</span></div>
-              <div className="flex justify-between"><span className="text-yellow-500">Fair</span><span className="text-text-muted">0 to 10</span></div>
-              <div className="flex justify-between"><span className="text-red-500">Poor</span><span className="text-text-muted">&lt; 0</span></div>
+              <div className="flex justify-between"><span className="text-green-500">Excellent</span><span className="text-slate-400">&gt; 20</span></div>
+              <div className="flex justify-between"><span className="text-lime-500">Good</span><span className="text-slate-400">10 to 20</span></div>
+              <div className="flex justify-between"><span className="text-yellow-500">Fair</span><span className="text-slate-400">0 to 10</span></div>
+              <div className="flex justify-between"><span className="text-red-500">Poor</span><span className="text-slate-400">&lt; 0</span></div>
             </div>
           </div>
         </div>
