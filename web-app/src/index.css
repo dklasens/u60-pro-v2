@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  background-color: #F3F3F3; /* SLDS background */
+  color: #181818;
+  font-family: system-ui, -apple-system, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+::selection {
+  background: rgba(1, 118, 211, 0.2); /* SLDS blue selection */
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { 
+  background: rgba(150, 150, 150, 0.4); 
+  border-radius: 10px; 
+  border: 2px solid #F3F3F3; /* Match body bg to pad the thumb */
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(150, 150, 150, 0.6); }
+
+input, select, textarea {
+  font-family: inherit;
+}

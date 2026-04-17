@@ -1,5 +1,5 @@
 [workspace]
-members = ["zte-agent"]
+members = ["agent"]
 resolver = "2"
 
 [profile.release]
