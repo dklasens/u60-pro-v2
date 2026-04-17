@@ -6,6 +6,38 @@ use crate::handlers::AppState;
 use crate::ubus;
 
 // ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+pub fn enforce_wifi_state_on_boot() {
+    if let Ok(s) = std::fs::read_to_string("/data/local/tmp/wifi_config.json") {
+        if let Ok(persisted) = serde_json::from_str::<Value>(&s) {
+            let mut changed = false;
+            
+            if let Some(r2) = persisted["radio2_disabled"].as_str() {
+                if ubus::uci_get("wireless.wifi0.disabled").unwrap_or_default() != r2 {
+                    let _ = ubus::uci_set_no_commit("wireless.wifi0.disabled", r2);
+                    changed = true;
+                }
+            }
+            if let Some(r5) = persisted["radio5_disabled"].as_str() {
+                if ubus::uci_get("wireless.wifi1.disabled").unwrap_or_default() != r5 {
+                    let _ = ubus::uci_set_no_commit("wireless.wifi1.disabled", r5);
+                    changed = true;
+                }
+            }
+            
+            if changed {
+                let _ = ubus::uci_commit("wireless");
+                let _ = Command::new("sh")
+                    .args(["-c", "ubus call zwrt_wlan reload >/dev/null 2>&1 &"])
+                    .output();
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -240,6 +272,11 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let mut txpower_2g_val: Option<u32> = None;
     let mut txpower_5g_val: Option<u32> = None;
 
+    let mut persisted_state = std::fs::read_to_string("/data/local/tmp/wifi_config.json")
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or_else(|| json!({}));
+
     for (key, value) in obj {
         let val_str = match value {
             Value::String(s) => s.clone(),
@@ -248,6 +285,10 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
             _ => continue,
         };
         let val_str = sanitize_uci_value(&val_str);
+
+        if key == "radio2_disabled" || key == "radio5_disabled" {
+            persisted_state[key.as_str()] = json!(val_str);
+        }
 
         // Check wireless UCI map
         if let Some(&(_, path)) = uci_map.iter().find(|&&(k, _)| k == key) {
@@ -291,6 +332,13 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
         if let Err(e) = ubus::uci_commit("zte_mbb") {
             return (500, json!({"ok": false, "error": e}));
         }
+    }
+
+    if wireless_changed || mbb_changed {
+        let _ = std::fs::write(
+            "/data/local/tmp/wifi_config.json",
+            serde_json::to_string(&persisted_state).unwrap_or_default(),
+        );
     }
 
     if !wireless_changed && !mbb_changed {

@@ -63,5 +63,7 @@ fn main() {
     // Apply persisted TTL settings if they exist
     let _ = std::process::Command::new("sh").arg("/data/local/tmp/start_ttl.sh").output();
 
+    wifi::enforce_wifi_state_on_boot();
+
     server::start(&bind, threads, state);
 }
