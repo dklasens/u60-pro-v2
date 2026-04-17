@@ -7,7 +7,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Alert({ type, msg }: { type: 'success' | 'error' | 'info'; msg: string }) {
-  const colors = { success: 'text-green-400', error: 'text-red-400', info: 'text-blue-400' }
+  const colors = { success: 'text-green-500', error: 'text-red-500', info: 'text-primary' }
   return <p className={`text-sm ${colors[type]}`}>{msg}</p>
 }
 
@@ -31,12 +31,12 @@ function UsbTool() {
   return (
     <Section title="USB Mode">
       <div className="space-y-3">
-        <p className="text-xs text-slate-400">Switch USB operating mode. A reboot may be required.</p>
+        <p className="text-xs text-text-muted">Switch USB operating mode. A reboot may be required.</p>
         {msg && <Alert type={msg.includes('Error') ? 'error' : 'success'} msg={msg} />}
         <div className="flex flex-wrap gap-2">
           {['rndis', 'ecm', 'ncm', 'debug'].map(m => (
             <button key={m} onClick={() => setMode(m)} disabled={loading}
-              className="rounded-lg bg-slate-700 px-3 py-2 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50">
+              className="rounded-pill bg-white/30 backdrop-blur-sm px-3 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200 disabled:opacity-40">
               {m.toUpperCase()}
             </button>
           ))}
@@ -58,17 +58,17 @@ function RebootTool() {
 
   return (
     <Section title="Device Reboot">
-      <p className="mb-3 text-xs text-slate-400">Reboot the router. All connections will be temporarily interrupted.</p>
+      <p className="mb-3 text-xs text-text-muted">Reboot the router. All connections will be temporarily interrupted.</p>
       {!confirm ? (
-        <button onClick={() => setConfirm(true)} className="rounded-lg bg-red-800/60 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-700/60">
+        <button onClick={() => setConfirm(true)} className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">
           Reboot
         </button>
       ) : (
         <div className="flex gap-2">
-          <button onClick={doReboot} disabled={rebooting} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
+          <button onClick={doReboot} disabled={rebooting} className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200 disabled:opacity-40">
             {rebooting ? 'Rebooting...' : 'Confirm Reboot'}
           </button>
-          <button onClick={() => setConfirm(false)} className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-600">
+          <button onClick={() => setConfirm(false)} className="rounded-pill bg-white/30 backdrop-blur-sm px-4 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200">
             Cancel
           </button>
         </div>
@@ -80,7 +80,7 @@ function RebootTool() {
 export default function ToolsPage() {
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-white">Tools</h1>
+      <h1 className="text-lg font-semibold text-text-primary">Tools</h1>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <UsbTool />
         <RebootTool />

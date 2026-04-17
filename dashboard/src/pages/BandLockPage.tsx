@@ -15,7 +15,7 @@ const NETWORK_MODES: { value: string; label: string }[] = [
 ]
 
 function Alert({ type, msg }: { type: 'success' | 'error'; msg: string }) {
-  const colors = { success: 'text-green-400', error: 'text-red-400' }
+  const colors = { success: 'text-green-500', error: 'text-red-500' }
   return <p className={`text-sm ${colors[type]}`}>{msg}</p>
 }
 
@@ -42,16 +42,16 @@ function NetworkModeSection({ currentMode, onApplied }: { currentMode: string; o
 
   return (
     <Card title="Network Mode">
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-muted">
         Select preferred network technology. The modem will reconnect after changing.
       </p>
       <div className="flex flex-wrap gap-2">
         {NETWORK_MODES.map(m => (
           <button key={m.value} onClick={() => setSelected(m.value)}
-            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+            className={`rounded-pill px-3 py-2 text-sm font-medium transition-all duration-200 ${
               selected === m.value
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                ? 'bg-primary text-white'
+                : 'bg-white/30 text-text-secondary hover:bg-white/50'
             }`}>
             {m.label}
           </button>
@@ -59,11 +59,11 @@ function NetworkModeSection({ currentMode, onApplied }: { currentMode: string; o
       </div>
       <div className="mt-3 flex items-center gap-3">
         <button onClick={apply} disabled={loading || selected === currentMode}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+          className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
           {loading ? 'Applying...' : 'Apply'}
         </button>
         {selected !== currentMode && (
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-text-muted">
             Current: {NETWORK_MODES.find(m => m.value === currentMode)?.label ?? currentMode}
           </span>
         )}
@@ -124,23 +124,23 @@ function BandLockSection({ title, description, bands, type, lockedBands, onAppli
 
   return (
     <Card title={title}>
-      <p className="mb-3 text-xs text-slate-400">{description}</p>
+      <p className="mb-3 text-xs text-text-muted">{description}</p>
       {lockedBands && lockedBands.length > 0 && (
-        <p className="mb-2 text-xs text-green-400">
+        <p className="mb-2 text-xs text-green-500">
           Locked: {lockedBands.sort((a, b) => a - b).map(b => type === 'nr' ? `n${b}` : `B${b}`).join(', ')}
         </p>
       )}
       <div className="mb-2 flex gap-2">
-        <button onClick={selectAll} className="text-xs text-blue-400 hover:text-blue-300">Select All</button>
-        <button onClick={selectNone} className="text-xs text-slate-400 hover:text-white">Clear</button>
+        <button onClick={selectAll} className="text-xs text-primary hover:text-primary-hover transition-colors">Select All</button>
+        <button onClick={selectNone} className="text-xs text-text-muted hover:text-text-primary transition-colors">Clear</button>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {bands.map(b => (
           <button key={b} onClick={() => toggle(b)}
-            className={`rounded px-2.5 py-1.5 text-xs font-medium transition ${
+            className={`rounded-pill px-2.5 py-1.5 text-xs font-medium transition-all duration-200 ${
               selected.has(b)
-                ? type === 'nr' ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white'
-                : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                ? type === 'nr' ? 'bg-purple-600 text-white' : 'bg-primary text-white'
+                : 'bg-white/30 text-text-secondary hover:bg-white/50'
             }`}>
             {type === 'nr' ? `n${b}` : `B${b}`}
           </button>
@@ -148,11 +148,11 @@ function BandLockSection({ title, description, bands, type, lockedBands, onAppli
       </div>
       <div className="mt-3 flex items-center gap-2">
         <button onClick={apply} disabled={loading || selected.size === 0}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+          className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
           {loading ? 'Locking...' : `Lock ${selected.size} Band${selected.size !== 1 ? 's' : ''}`}
         </button>
         {selected.size > 0 && (
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-text-muted">
             {Array.from(selected).sort((a, b) => a - b).map(b => type === 'nr' ? `n${b}` : `B${b}`).join(', ')}
           </span>
         )}
@@ -191,33 +191,33 @@ function CellLockSection({ type, onApplied }: { type: 'nr' | 'lte'; onApplied: (
 
   return (
     <Card title={`${type === 'nr' ? 'NR' : 'LTE'} Cell Lock`}>
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-muted">
         Lock to a specific cell by PCI and {type === 'nr' ? 'NR-ARFCN' : 'EARFCN'}.
         {type === 'nr' ? ' Band number is also required for NR.' : ''}
       </p>
       <div className="flex flex-wrap items-end gap-2">
         <div>
-          <label className="mb-1 block text-xs text-slate-400">PCI</label>
+          <label className="mb-1 block text-xs text-text-muted">PCI</label>
           <input type="number" value={pci} onChange={e => setPci(e.target.value)}
             placeholder="e.g. 30"
-            className="w-24 rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none" />
+            className="w-24 rounded-pill border border-divider bg-white/40 px-3 py-2 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
         </div>
         <div>
-          <label className="mb-1 block text-xs text-slate-400">{type === 'nr' ? 'NR-ARFCN' : 'EARFCN'}</label>
+          <label className="mb-1 block text-xs text-text-muted">{type === 'nr' ? 'NR-ARFCN' : 'EARFCN'}</label>
           <input type="number" value={earfcn} onChange={e => setEarfcn(e.target.value)}
             placeholder={type === 'nr' ? 'e.g. 630912' : 'e.g. 3650'}
-            className="w-32 rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none" />
+            className="w-32 rounded-pill border border-divider bg-white/40 px-3 py-2 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
         </div>
         {type === 'nr' && (
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Band</label>
+            <label className="mb-1 block text-xs text-text-muted">Band</label>
             <input type="number" value={band} onChange={e => setBand(e.target.value)}
               placeholder="e.g. 78"
-              className="w-20 rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-blue-500 focus:outline-none" />
+              className="w-20 rounded-pill border border-divider bg-white/40 px-3 py-2 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
           </div>
         )}
         <button onClick={apply} disabled={loading}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+          className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
           {loading ? 'Locking...' : 'Lock Cell'}
         </button>
       </div>
@@ -236,17 +236,17 @@ function CurrentCellInfo({ signal, onLock }: {
 
   return (
     <Card title="Current Cell Info">
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-muted">
         Active serving cells. Use the Lock button to lock to a specific cell.
       </p>
 
       {nr_carriers.length > 0 && (
         <div className="mb-4">
-          <p className="mb-2 text-xs font-medium uppercase text-purple-400">NR 5G Carriers</p>
+          <p className="mb-2 text-xs font-medium uppercase text-purple-600">NR 5G Carriers</p>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-400">
+                <tr className="border-b border-divider text-text-muted">
                   <th className="pb-1.5 pr-3">Type</th>
                   <th className="pb-1.5 pr-3">Band</th>
                   <th className="pb-1.5 pr-3">PCI</th>
@@ -262,22 +262,22 @@ function CurrentCellInfo({ signal, onLock }: {
                 {nr_carriers.map((c, i) => {
                   const bandNum = c.band.replace(/\D/g, '')
                   return (
-                    <tr key={i} className="border-b border-slate-700/30">
+                    <tr key={i} className="border-b border-divider">
                       <td className="py-1.5 pr-3">
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${c.label === 'PCC' ? 'bg-green-900/50 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                        <span className={`rounded-pill px-1.5 py-0.5 text-[10px] font-medium ${c.label === 'PCC' ? 'bg-green-100 text-green-700' : 'bg-white/30 text-text-muted'}`}>
                           {c.label}
                         </span>
                       </td>
-                      <td className="py-1.5 pr-3 font-medium text-purple-300">{c.band}</td>
-                      <td className="py-1.5 pr-3 text-white">{c.pci}</td>
-                      <td className="py-1.5 pr-3 text-white">{c.earfcn}</td>
-                      <td className="py-1.5 pr-3 text-slate-300">{c.bandwidth}</td>
-                      <td className="py-1.5 pr-3 text-slate-300">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
-                      <td className="py-1.5 pr-3 text-white">{c.rsrp ?? '\u2014'}</td>
-                      <td className="py-1.5 pr-3 text-white">{c.sinr ?? '\u2014'}</td>
+                      <td className="py-1.5 pr-3 font-medium text-purple-600">{c.band}</td>
+                      <td className="py-1.5 pr-3 text-text-primary">{c.pci}</td>
+                      <td className="py-1.5 pr-3 text-text-primary">{c.earfcn}</td>
+                      <td className="py-1.5 pr-3 text-text-secondary">{c.bandwidth}</td>
+                      <td className="py-1.5 pr-3 text-text-secondary">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
+                      <td className="py-1.5 pr-3 text-text-primary">{c.rsrp ?? '\u2014'}</td>
+                      <td className="py-1.5 pr-3 text-text-primary">{c.sinr ?? '\u2014'}</td>
                       <td className="py-1.5">
                         <button onClick={() => onLock('nr', c.pci, c.earfcn, bandNum)}
-                          className="rounded bg-purple-800/50 px-2 py-0.5 text-[10px] font-medium text-purple-300 hover:bg-purple-700/50 transition">
+                          className="rounded-pill bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-600 hover:bg-purple-500/20 transition-all duration-200">
                           Lock
                         </button>
                       </td>
@@ -292,11 +292,11 @@ function CurrentCellInfo({ signal, onLock }: {
 
       {lte_carriers.length > 0 && (
         <div>
-          <p className="mb-2 text-xs font-medium uppercase text-blue-400">LTE Carriers</p>
+          <p className="mb-2 text-xs font-medium uppercase text-primary">LTE Carriers</p>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-400">
+                <tr className="border-b border-divider text-text-muted">
                   <th className="pb-1.5 pr-3">Type</th>
                   <th className="pb-1.5 pr-3">Band</th>
                   <th className="pb-1.5 pr-3">PCI</th>
@@ -310,22 +310,22 @@ function CurrentCellInfo({ signal, onLock }: {
               </thead>
               <tbody>
                 {lte_carriers.map((c, i) => (
-                  <tr key={i} className="border-b border-slate-700/30">
+                  <tr key={i} className="border-b border-divider">
                     <td className="py-1.5 pr-3">
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${c.label === 'PCC' ? 'bg-green-900/50 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
+                      <span className={`rounded-pill px-1.5 py-0.5 text-[10px] font-medium ${c.label === 'PCC' ? 'bg-green-100 text-green-700' : 'bg-white/30 text-text-muted'}`}>
                         {c.label}
                       </span>
                     </td>
-                    <td className="py-1.5 pr-3 font-medium text-blue-300">{c.band}</td>
-                    <td className="py-1.5 pr-3 text-white">{c.pci}</td>
-                    <td className="py-1.5 pr-3 text-white">{c.earfcn}</td>
-                    <td className="py-1.5 pr-3 text-slate-300">{c.bandwidth}</td>
-                    <td className="py-1.5 pr-3 text-slate-300">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
-                    <td className="py-1.5 pr-3 text-white">{c.rsrp ?? '\u2014'}</td>
-                    <td className="py-1.5 pr-3 text-white">{c.sinr ?? '\u2014'}</td>
+                    <td className="py-1.5 pr-3 font-medium text-primary">{c.band}</td>
+                    <td className="py-1.5 pr-3 text-text-primary">{c.pci}</td>
+                    <td className="py-1.5 pr-3 text-text-primary">{c.earfcn}</td>
+                    <td className="py-1.5 pr-3 text-text-secondary">{c.bandwidth}</td>
+                    <td className="py-1.5 pr-3 text-text-secondary">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
+                    <td className="py-1.5 pr-3 text-text-primary">{c.rsrp ?? '\u2014'}</td>
+                    <td className="py-1.5 pr-3 text-text-primary">{c.sinr ?? '\u2014'}</td>
                     <td className="py-1.5">
                       <button onClick={() => onLock('lte', c.pci, c.earfcn)}
-                        className="rounded bg-blue-800/50 px-2 py-0.5 text-[10px] font-medium text-blue-300 hover:bg-blue-700/50 transition">
+                        className="rounded-pill bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary hover:bg-primary/20 transition-all duration-200">
                         Lock
                       </button>
                     </td>
@@ -338,7 +338,7 @@ function CurrentCellInfo({ signal, onLock }: {
       )}
 
       {lte_carriers.length === 0 && nr_carriers.length === 0 && (
-        <p className="text-sm text-slate-500">No active carriers</p>
+        <p className="text-sm text-text-muted">No active carriers</p>
       )}
     </Card>
   )
@@ -377,16 +377,16 @@ function ResetSection({ onApplied }: { onApplied: () => void }) {
 
   return (
     <Card title="Reset Locks">
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-muted">
         Remove all band and cell locks. The modem will reconnect using automatic selection.
       </p>
       <div className="flex flex-wrap gap-2">
         <button onClick={resetBands} disabled={loading}
-          className="rounded-lg bg-red-800/60 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-700/60 disabled:opacity-50">
+          className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200 disabled:opacity-40">
           Reset Band Locks
         </button>
         <button onClick={resetCells} disabled={loading}
-          className="rounded-lg bg-red-800/60 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-700/60 disabled:opacity-50">
+          className="rounded-pill bg-red-500/10 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200 disabled:opacity-40">
           Reset Cell Locks
         </button>
       </div>
@@ -429,10 +429,10 @@ export default function BandLockPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-white">Band & Cell Locking</h1>
+      <h1 className="text-lg font-semibold text-text-primary">Band & Cell Locking</h1>
 
       {lockMsg && (
-        <div className={`rounded-lg px-4 py-2 text-sm ${lockMsg.includes('failed') || lockMsg.includes('Failed') ? 'bg-red-900/30 text-red-400' : 'bg-green-900/30 text-green-400'}`}>
+        <div className={`rounded-glass px-4 py-2 text-sm ${lockMsg.includes('failed') || lockMsg.includes('Failed') ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-500'}`}>
           {lockMsg}
         </div>
       )}
@@ -475,14 +475,14 @@ export default function BandLockPage() {
       {/* Diagnostics */}
       {signal && (
         <Card title="Band Lock Diagnostics">
-          <div className="space-y-1 font-mono text-xs text-slate-400">
-            <p>LTE lock (raw): <span className="text-white">{signal.raw_lte_band_lock || '(empty)'}</span></p>
-            <p>NR lock (raw): <span className="text-white">{signal.raw_nr_band_lock || '(empty)'}</span></p>
-            <p>LTE lock (parsed): <span className="text-white">{signal.lte_band_lock ? signal.lte_band_lock.join(', ') : '(none)'}</span></p>
-            <p>NR lock (parsed): <span className="text-white">{signal.nr_band_lock ? signal.nr_band_lock.join(', ') : '(none)'}</span></p>
-            <p>Network mode: <span className="text-white">{signal.net_select || '(unknown)'}</span></p>
+          <div className="space-y-1 font-mono text-xs text-text-muted">
+            <p>LTE lock (raw): <span className="text-text-primary">{signal.raw_lte_band_lock || '(empty)'}</span></p>
+            <p>NR lock (raw): <span className="text-text-primary">{signal.raw_nr_band_lock || '(empty)'}</span></p>
+            <p>LTE lock (parsed): <span className="text-text-primary">{signal.lte_band_lock ? signal.lte_band_lock.join(', ') : '(none)'}</span></p>
+            <p>NR lock (parsed): <span className="text-text-primary">{signal.nr_band_lock ? signal.nr_band_lock.join(', ') : '(none)'}</span></p>
+            <p>Network mode: <span className="text-text-primary">{signal.net_select || '(unknown)'}</span></p>
           </div>
-          <button onClick={fetchStatus} className="mt-2 rounded bg-slate-700 px-3 py-1 text-xs text-slate-300 hover:bg-slate-600">
+          <button onClick={fetchStatus} className="mt-2 rounded-pill bg-white/30 px-3 py-1 text-xs text-text-secondary hover:bg-white/50 transition-all duration-200">
             Refresh
           </button>
         </Card>

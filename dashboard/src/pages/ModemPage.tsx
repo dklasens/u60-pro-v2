@@ -5,15 +5,15 @@ import Card from '../components/Card'
 function Input({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <div>
-      <label className="mb-0.5 block text-xs text-slate-400">{label}</label>
+      <label className="mb-0.5 block text-xs text-text-muted">{label}</label>
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none" />
+        className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
     </div>
   )
 }
 
 function Alert({ msg, type = 'success' }: { msg: string; type?: 'success' | 'error' }) {
-  return <p className={`text-xs ${type === 'error' ? 'text-red-400' : 'text-green-400'}`}>{msg}</p>
+  return <p className={`text-xs ${type === 'error' ? 'text-red-500' : 'text-green-500'}`}>{msg}</p>
 }
 
 const APN_PRESETS: { name: string; apn: string; user: string; pass: string; auth: number; pdp: number }[] = [
@@ -62,21 +62,21 @@ function ApnModeSection() {
 
   return (
     <Card title="APN Mode">
-      <p className="mb-3 text-xs text-slate-400">
+      <p className="mb-3 text-xs text-text-muted">
         In automatic mode, the device selects the APN based on your SIM card.
         Switch to manual to use a custom APN profile.
       </p>
       <div className="flex gap-2">
         <button onClick={() => apply(0)} disabled={loading || mode === 0}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-            mode === 0 ? 'bg-green-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-          } disabled:opacity-50`}>
+          className={`rounded-pill px-4 py-2 text-sm font-medium transition-all duration-200 ${
+            mode === 0 ? 'bg-green-500/10 text-green-600' : 'bg-white/30 text-text-secondary hover:bg-white/50'
+          } disabled:opacity-40`}>
           Automatic
         </button>
         <button onClick={() => apply(1)} disabled={loading || mode === 1}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-            mode === 1 ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-          } disabled:opacity-50`}>
+          className={`rounded-pill px-4 py-2 text-sm font-medium transition-all duration-200 ${
+            mode === 1 ? 'bg-primary text-white' : 'bg-white/30 text-text-secondary hover:bg-white/50'
+          } disabled:opacity-40`}>
           Manual
         </button>
       </div>
@@ -145,18 +145,18 @@ function ApnSection() {
       {msg && <Alert msg={msg} type={msg.includes('Error') ? 'error' : 'success'} />}
 
       <Card title="APN Profiles">
-        {loading ? <p className="text-sm text-slate-400">Loading...</p> : profiles.length === 0 ? (
-          <p className="text-sm text-slate-500">No manual APN profiles</p>
+        {loading ? <p className="text-sm text-text-muted">Loading...</p> : profiles.length === 0 ? (
+          <p className="text-sm text-text-muted">No manual APN profiles</p>
         ) : (
           <div className="space-y-2">
             {profiles.map(p => (
-              <div key={p.profileId} className={`flex items-center justify-between rounded-lg px-3 py-2 ${p.isEnable ? 'bg-blue-900/30 border border-blue-800/50' : 'bg-slate-700/40'}`}>
+              <div key={p.profileId} className={`flex items-center justify-between rounded-pill px-3 py-2 ${p.isEnable ? 'glass-tint-blue border border-primary/30' : 'bg-white/20'}`}>
                 <div>
-                  <p className="text-sm font-medium text-white">
+                  <p className="text-sm font-medium text-text-primary">
                     {p.profilename}
-                    {p.isEnable && <span className="ml-2 rounded bg-green-800/60 px-1.5 py-0.5 text-[10px] text-green-300">Active</span>}
+                    {p.isEnable && <span className="ml-2 rounded-pill bg-green-100 px-1.5 py-0.5 text-[10px] text-green-700">Active</span>}
                   </p>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-text-muted">
                     {p.wanapn} — {PDP_LABELS[p.pdpType] ?? '?'} / {AUTH_LABELS[p.pppAuthMode] ?? '?'}
                     {p.username ? ` — ${p.username}` : ''}
                   </p>
@@ -164,10 +164,10 @@ function ApnSection() {
                 <div className="flex gap-1.5">
                   {!p.isEnable && (
                     <button onClick={() => activateProfile(p.profileId)}
-                      className="rounded bg-blue-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-blue-500">Activate</button>
+                      className="rounded-pill bg-primary px-2 py-1 text-[10px] font-medium text-white hover:bg-primary-hover transition-all duration-200">Activate</button>
                   )}
                   <button onClick={() => deleteProfile(p.profileId)}
-                    className="rounded bg-red-900/40 px-2 py-1 text-[10px] font-medium text-red-300 hover:bg-red-800/40">Delete</button>
+                    className="rounded-pill bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">Delete</button>
                 </div>
               </div>
             ))}
@@ -183,9 +183,9 @@ function ApnSection() {
             <Input label="Username" value={form.user} onChange={v => setForm(f => ({ ...f, user: v }))} placeholder="(optional)" />
             <Input label="Password" value={form.pass} onChange={v => setForm(f => ({ ...f, pass: v }))} placeholder="(optional)" />
             <div>
-              <label className="mb-0.5 block text-xs text-slate-400">Authentication</label>
+              <label className="mb-0.5 block text-xs text-text-muted">Authentication</label>
               <select value={form.auth} onChange={e => setForm(f => ({ ...f, auth: parseInt(e.target.value) }))}
-                className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none">
+                className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
                 <option value={0}>None</option>
                 <option value={1}>PAP</option>
                 <option value={2}>CHAP</option>
@@ -193,9 +193,9 @@ function ApnSection() {
               </select>
             </div>
             <div>
-              <label className="mb-0.5 block text-xs text-slate-400">PDP Type</label>
+              <label className="mb-0.5 block text-xs text-text-muted">PDP Type</label>
               <select value={form.pdp} onChange={e => setForm(f => ({ ...f, pdp: parseInt(e.target.value) }))}
-                className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none">
+                className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
                 <option value={3}>IPv4v6</option>
                 <option value={1}>IPv4</option>
                 <option value={2}>IPv6</option>
@@ -204,22 +204,22 @@ function ApnSection() {
           </div>
           <div className="mt-3 flex gap-2">
             <button onClick={addProfile} disabled={!form.name || !form.apn}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">Add Profile</button>
+              className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">Add Profile</button>
             <button onClick={() => setAdding(false)}
-              className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-600">Cancel</button>
+              className="rounded-pill bg-white/30 backdrop-blur-sm px-4 py-2 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200">Cancel</button>
           </div>
         </Card>
       ) : (
         <button onClick={() => setAdding(true)}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500">+ Add APN Profile</button>
+          className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200">+ Add APN Profile</button>
       )}
 
       <Card title="Quick Presets">
-        <p className="mb-2 text-xs text-slate-400">Tap a preset to pre-fill the add form with common carrier settings.</p>
+        <p className="mb-2 text-xs text-text-muted">Tap a preset to pre-fill the add form with common carrier settings.</p>
         <div className="flex flex-wrap gap-1.5">
           {APN_PRESETS.map(p => (
             <button key={p.name} onClick={() => applyPreset(p)}
-              className="rounded bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-600">{p.name}</button>
+              className="rounded-pill bg-white/30 px-2.5 py-1.5 text-xs font-medium text-text-secondary hover:bg-white/50 transition-all duration-200">{p.name}</button>
           ))}
         </div>
       </Card>
@@ -281,7 +281,7 @@ function TtlSection() {
   return (
     <Card title="TTL Clamping">
       <div className="space-y-3">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-text-muted">
           Override TTL/Hop Limit on LAN ingress traffic to prevent carrier tethering detection.
           Changes are applied immediately and persist across reboots.
         </p>
@@ -292,39 +292,39 @@ function TtlSection() {
               type="number" min={1} max={255} value={ttlInput}
               onChange={e => setTtlInput(e.target.value)}
               placeholder="e.g. 65"
-              className="w-24 rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+              className="w-24 rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             <button onClick={applyTtl} disabled={loading || !ttlInput}
-              className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+              className="rounded-pill bg-primary px-4 py-1.5 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
               {loading ? 'Applying...' : 'Enable Clamping'}
             </button>
           </div>
         ) : active === true ? (
           <div className="flex flex-wrap items-center gap-y-3 gap-x-4 pt-1">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-green-400" />
-              <span className="text-sm font-medium text-green-400">Active (TTL={currentTtl})</span>
-              {ipv6Active && <span className="rounded bg-slate-700/50 px-1.5 py-0.5 text-[10px] text-slate-400">IPv4 + IPv6</span>}
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              <span className="text-sm font-medium text-green-500">Active (TTL={currentTtl})</span>
+              {ipv6Active && <span className="rounded-pill bg-white/30 px-1.5 py-0.5 text-[10px] text-text-muted">IPv4 + IPv6</span>}
             </div>
             
-            <div className="flex items-center gap-2 border-l border-slate-700/50 pl-4">
+            <div className="flex items-center gap-2 border-l border-divider pl-4">
               <input
                 type="number" min={1} max={255} value={ttlInput}
                 onChange={e => setTtlInput(e.target.value)}
-                className="w-20 rounded-lg border border-slate-600 bg-slate-700 px-2 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none"
+                className="w-20 rounded-pill border border-divider bg-white/40 px-2 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               <button onClick={applyTtl} disabled={loading}
-                className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50">
+                className="rounded-pill bg-white/30 backdrop-blur-sm px-3 py-1.5 text-sm font-medium text-text-secondary hover:bg-white/50 transition-all duration-200 disabled:opacity-40">
                 Update
               </button>
               <button onClick={clearTtl} disabled={loading}
-                className="rounded-lg bg-red-800/60 px-3 py-1.5 text-sm font-medium text-red-300 hover:bg-red-700/60 disabled:opacity-50">
+                className="rounded-pill bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200 disabled:opacity-40">
                 Disable
               </button>
             </div>
           </div>
         ) : (
-          <span className="text-sm text-slate-500 pt-1 block">Checking status...</span>
+          <span className="text-sm text-text-muted pt-1 block">Checking status...</span>
         )}
 
         {msg && <Alert msg={msg} type={msg.includes('Failed') || msg.includes('Unable') ? 'error' : 'success'} />}
@@ -379,40 +379,39 @@ function DataUsageSection() {
       {/* Monthly limit bar */}
       <Card title="Monthly Usage" action={
         <button onClick={() => { setEditingLimit(true); setLimitGb(String(limit.gb || '')); setResetDay(String(limit.resetDay)) }}
-          className="text-xs text-blue-400 hover:text-blue-300">{limit.gb > 0 ? 'Edit Limit' : 'Set Limit'}</button>
+          className="text-xs text-primary hover:text-primary-hover transition-colors">{limit.gb > 0 ? 'Edit Limit' : 'Set Limit'}</button>
       }>
         {editingLimit && (
-          <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg bg-slate-700/40 p-3">
+          <div className="mb-3 flex flex-wrap items-end gap-2 rounded-glass bg-white/20 p-3">
             <div>
-              <label className="mb-0.5 block text-xs text-slate-400">Data Limit (GB)</label>
+              <label className="mb-0.5 block text-xs text-text-muted">Data Limit (GB)</label>
               <input type="number" value={limitGb} onChange={e => setLimitGb(e.target.value)} placeholder="e.g. 100"
-                className="w-24 rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none" />
+                className="w-24 rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
             </div>
             <div>
-              <label className="mb-0.5 block text-xs text-slate-400">Reset Day</label>
+              <label className="mb-0.5 block text-xs text-text-muted">Reset Day</label>
               <input type="number" min={1} max={28} value={resetDay} onChange={e => setResetDay(e.target.value)}
-                className="w-16 rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none" />
+                className="w-16 rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
             </div>
-            <button onClick={saveLimit} className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-500">Save</button>
-            <button onClick={() => setEditingLimit(false)} className="rounded-lg bg-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-600">Cancel</button>
+            <button onClick={saveLimit} className="rounded-pill bg-primary px-3 py-1.5 text-sm text-white hover:bg-primary-hover transition-all duration-200">Save</button>
+            <button onClick={() => setEditingLimit(false)} className="rounded-pill bg-white/30 backdrop-blur-sm px-3 py-1.5 text-sm text-text-secondary hover:bg-white/50 transition-all duration-200">Cancel</button>
           </div>
         )}
 
         {usage && limit.gb > 0 && (
           <div className="mb-4">
             <div className="mb-1 flex justify-between text-xs">
-              <span className="text-slate-400">{formatBytes(monthTotal)} / {limit.gb} GB</span>
-              <span className={usagePct > 90 ? 'text-red-400' : usagePct > 70 ? 'text-yellow-400' : 'text-green-400'}>
+              <span className="text-text-muted">{formatBytes(monthTotal)} / {limit.gb} GB</span>
+              <span className={usagePct > 90 ? 'text-red-500' : usagePct > 70 ? 'text-amber-500' : 'text-green-500'}>
                 {usagePct.toFixed(1)}%
               </span>
             </div>
-            <div className="h-3 rounded-full bg-slate-700 overflow-hidden">
-              <div className="h-full rounded-full transition-all" style={{
+            <div className="h-2 rounded-full bg-white/30 overflow-hidden">
+              <div className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-500" style={{
                 width: `${usagePct}%`,
-                backgroundColor: usagePct > 90 ? '#f87171' : usagePct > 70 ? '#facc15' : '#4ade80',
               }} />
             </div>
-            <p className="mt-1 text-xs text-slate-500">Resets on day {limit.resetDay} of each month</p>
+            <p className="mt-1 text-xs text-text-muted">Resets on day {limit.resetDay} of each month</p>
           </div>
         )}
 
@@ -421,27 +420,27 @@ function DataUsageSection() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-muted">
                   <th className="pb-2 pr-4 font-medium">Period</th>
                   <th className="pb-2 pr-4 font-medium text-right">Download</th>
                   <th className="pb-2 pr-4 font-medium text-right">Upload</th>
                   <th className="pb-2 font-medium text-right">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700/50">
+              <tbody className="divide-y divide-divider">
                 {periods.map(({ label, data }) => (
                   <tr key={label}>
-                    <td className="py-2 pr-4 text-slate-300">{label}</td>
-                    <td className="py-2 pr-4 text-right text-green-400">{formatBytes(data.rx_bytes)}</td>
-                    <td className="py-2 pr-4 text-right text-blue-400">{formatBytes(data.tx_bytes)}</td>
-                    <td className="py-2 text-right font-medium text-white">{formatBytes(data.rx_bytes + data.tx_bytes)}</td>
+                    <td className="py-2 pr-4 text-text-secondary">{label}</td>
+                    <td className="py-2 pr-4 text-right text-green-500">{formatBytes(data.rx_bytes)}</td>
+                    <td className="py-2 pr-4 text-right text-primary">{formatBytes(data.tx_bytes)}</td>
+                    <td className="py-2 text-right font-medium text-text-primary">{formatBytes(data.rx_bytes + data.tx_bytes)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         ) : (
-          <p className="text-sm text-slate-500">Loading...</p>
+          <p className="text-sm text-text-muted">Loading...</p>
         )}
       </Card>
 
@@ -454,21 +453,21 @@ function DataUsageSection() {
             const ulPct = Math.max((data.tx_bytes / maxBytes) * 100, 2)
             return (
               <div key={label} className="mb-4 last:mb-0">
-                <p className="mb-1.5 text-xs font-medium text-slate-400">{label}</p>
+                <p className="mb-1.5 text-[11px] font-medium text-text-muted uppercase tracking-wide">{label}</p>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="w-8 text-[10px] text-green-400">DL</span>
-                    <div className="flex-1 h-4 rounded bg-slate-700/50 overflow-hidden">
-                      <div className="h-full rounded bg-green-600/80 flex items-center px-1.5 text-[9px] font-medium text-white transition-all"
+                    <span className="w-8 text-[10px] text-green-500">DL</span>
+                    <div className="flex-1 h-4 rounded bg-white/30 overflow-hidden">
+                      <div className="h-full rounded bg-green-500 flex items-center px-1.5 text-[9px] font-medium text-white transition-all"
                         style={{ width: `${dlPct}%`, minWidth: 'fit-content' }}>
                         {formatBytes(data.rx_bytes)}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-8 text-[10px] text-blue-400">UL</span>
-                    <div className="flex-1 h-4 rounded bg-slate-700/50 overflow-hidden">
-                      <div className="h-full rounded bg-blue-600/80 flex items-center px-1.5 text-[9px] font-medium text-white transition-all"
+                    <span className="w-8 text-[10px] text-primary">UL</span>
+                    <div className="flex-1 h-4 rounded bg-white/30 overflow-hidden">
+                      <div className="h-full rounded bg-primary flex items-center px-1.5 text-[9px] font-medium text-white transition-all"
                         style={{ width: `${ulPct}%`, minWidth: 'fit-content' }}>
                         {formatBytes(data.tx_bytes)}
                       </div>
@@ -490,17 +489,17 @@ export default function ModemPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-white">Modem</h1>
+      <h1 className="text-lg font-semibold text-text-primary">Modem</h1>
 
-      <div className="flex gap-1 rounded-xl bg-slate-800 p-1 w-fit">
+      <div className="glass-subtle !rounded-glass p-1 flex gap-1 w-fit">
         {([
           ['apn', 'APN'],
           ['data', 'Data Usage'],
           ['ttl', 'TTL'],
         ] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              tab === id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+            className={`rounded-pill px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
+              tab === id ? 'bg-white/60 text-text-primary' : 'text-text-muted hover:text-text-secondary'
             }`}>
             {label}
           </button>

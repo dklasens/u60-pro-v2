@@ -10,14 +10,12 @@ function deriveAlerts(battery: BatteryDetail | null, thermal: ThermalInfo | null
   const alerts: Alert[] = []
 
   if (battery) {
-    // Battery temperature
     if (battery.temperature_c >= 50) {
       alerts.push({ level: 'error', message: `Battery temperature critically high (${battery.temperature_c.toFixed(0)}°C) — charging stopped` })
     } else if (battery.temperature_c >= 45) {
       alerts.push({ level: 'warning', message: `Battery temperature high (${battery.temperature_c.toFixed(0)}°C) — charging may be limited` })
     }
 
-    // Battery health
     const h = battery.health?.toLowerCase()
     if (h === 'overheat' || h === 'hot') {
       alerts.push({ level: 'error', message: `Battery health: ${battery.health}` })
@@ -25,7 +23,6 @@ function deriveAlerts(battery: BatteryDetail | null, thermal: ThermalInfo | null
       alerts.push({ level: 'warning', message: `Battery health: ${battery.health}` })
     }
 
-    // Low battery
     if (battery.capacity <= 5 && battery.status !== 'Charging') {
       alerts.push({ level: 'error', message: `Battery critically low (${battery.capacity}%)` })
     } else if (battery.capacity <= 15 && battery.status !== 'Charging') {
@@ -72,16 +69,16 @@ export default function AlertBanner() {
   return (
     <div className="space-y-1.5 mb-3">
       {visible.map((a, i) => (
-        <div key={i} className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${
+        <div key={i} className={`glass-subtle flex items-center gap-2.5 !rounded-glass px-4 py-2.5 text-xs font-medium ${
           a.level === 'error'
-            ? 'border border-red-700/50 bg-red-950/60 text-red-300'
-            : 'border border-amber-700/50 bg-amber-950/60 text-amber-300'
+            ? '!border-l-4 !border-l-red-400 text-red-700'
+            : '!border-l-4 !border-l-amber-400 text-amber-700'
         }`}>
           <span>{a.level === 'error' ? '\u26a0' : '\u26a0'}</span>
           <span className="flex-1">{a.message}</span>
           <button
             onClick={() => setDismissed(prev => new Set(prev).add(a.message))}
-            className="ml-2 text-slate-500 hover:text-slate-300"
+            className="ml-2 text-text-muted hover:text-text-primary transition-colors"
           >
             &times;
           </button>

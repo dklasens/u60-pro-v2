@@ -70,83 +70,83 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
   return (
     <Card title={label} action={
       !editing ? (
-        <button onClick={() => setEditing(true)} className="text-xs text-blue-400 hover:text-blue-300">Edit</button>
+        <button onClick={() => setEditing(true)} className="text-xs text-primary hover:text-primary-hover transition-colors">Edit</button>
       ) : (
         <div className="flex gap-2">
-          <button onClick={() => setEditing(false)} className="text-xs text-slate-400 hover:text-white">Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="text-xs text-blue-400 hover:text-blue-300">
+          <button onClick={() => setEditing(false)} className="text-xs text-text-muted hover:text-text-primary transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={saving} className="text-xs text-primary hover:text-primary-hover transition-colors">
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
       )
     }>
-      {msg && <p className={`mb-2 text-xs ${msg.startsWith('Saved') || msg.includes('abled') ? 'text-green-400' : 'text-red-400'}`}>{msg}</p>}
+      {msg && <p className={`mb-2 text-xs ${msg.startsWith('Saved') || msg.includes('abled') ? 'text-green-500' : 'text-red-500'}`}>{msg}</p>}
 
       <div className="space-y-3">
         {/* Status + enable/disable */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${band.enabled ? 'bg-green-400' : 'bg-red-400'}`} />
-            <span className="text-sm text-slate-300">{band.enabled ? 'Enabled' : 'Disabled'}</span>
+            <span className={`h-2 w-2 rounded-full ${band.enabled ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm text-text-secondary">{band.enabled ? 'Enabled' : 'Disabled'}</span>
             {band.clients != null && (
-              <span className="text-xs text-slate-400">({band.clients} client{band.clients !== 1 ? 's' : ''})</span>
+              <span className="text-xs text-text-muted">({band.clients} client{band.clients !== 1 ? 's' : ''})</span>
             )}
           </div>
           <button onClick={toggleRadio} disabled={saving}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+            className={`rounded-pill px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
               band.enabled
-                ? 'bg-red-800/60 text-red-300 hover:bg-red-700/60'
-                : 'bg-green-800/60 text-green-300 hover:bg-green-700/60'
-            } disabled:opacity-50`}>
+                ? 'bg-red-500/10 text-red-600 hover:bg-red-500/20'
+                : 'bg-green-500/10 text-green-600 hover:bg-green-500/20'
+            } disabled:opacity-40`}>
             {band.enabled ? 'Disable' : 'Enable'}
           </button>
         </div>
 
         {/* SSID */}
         <div>
-          <label className="mb-0.5 block text-xs text-slate-400">SSID</label>
+          <label className="mb-0.5 block text-xs text-text-muted">SSID</label>
           {editing ? (
             <input value={ssid} onChange={e => setSsid(e.target.value)}
-              className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none" />
+              className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
           ) : (
-            <p className="text-sm font-medium text-white">{band.ssid ?? '—'}</p>
+            <p className="text-sm font-medium text-text-primary">{band.ssid ?? '—'}</p>
           )}
         </div>
 
         {/* Password */}
         <div>
-          <label className="mb-0.5 block text-xs text-slate-400">Password</label>
+          <label className="mb-0.5 block text-xs text-text-muted">Password</label>
           {editing ? (
             <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none" />
+              className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
           ) : (
-            <p className="text-sm text-white font-mono">{band.password ? '••••••••' : '—'}</p>
+            <p className="text-sm text-text-primary font-mono">{band.password ? '••••••••' : '—'}</p>
           )}
         </div>
 
         {/* Advanced settings (edit mode) */}
         {editing ? (
-          <div className="space-y-3 border-t border-slate-700/50 pt-3">
-            <p className="text-xs font-medium text-slate-400">Advanced</p>
+          <div className="space-y-3 border-t border-divider pt-3">
+            <p className="text-xs font-medium text-text-muted">Advanced</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-0.5 block text-xs text-slate-400">Channel</label>
+                <label className="mb-0.5 block text-xs text-text-muted">Channel</label>
                 <select value={channel} onChange={e => setChannel(e.target.value)}
-                  className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none">
+                  className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
                   {channels.map(c => <option key={c} value={c}>{c === 'auto' ? 'Auto' : c}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-0.5 block text-xs text-slate-400">Bandwidth</label>
+                <label className="mb-0.5 block text-xs text-text-muted">Bandwidth</label>
                 <select value={htmode} onChange={e => setHtmode(e.target.value)}
-                  className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none">
+                  className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
                   {htmodes.map(m => <option key={m} value={m}>{m.replace('HT', '')} MHz</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-0.5 block text-xs text-slate-400">TX Power</label>
+                <label className="mb-0.5 block text-xs text-text-muted">TX Power</label>
                 <select value={txpower} onChange={e => setTxpower(e.target.value)}
-                  className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none">
+                  className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20">
                   <option value="">Default</option>
                   <option value="100">100%</option>
                   <option value="75">75%</option>
@@ -156,8 +156,8 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
               </div>
               <div className="flex items-center gap-2 pt-5">
                 <input type="checkbox" id={`hidden_${suffix}`} checked={hidden} onChange={e => setHidden(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-600 bg-slate-700 text-blue-600" />
-                <label htmlFor={`hidden_${suffix}`} className="text-xs text-slate-400">Hidden SSID</label>
+                  className="h-4 w-4 rounded border-divider bg-white/40 text-primary" />
+                <label htmlFor={`hidden_${suffix}`} className="text-xs text-text-muted">Hidden SSID</label>
               </div>
             </div>
           </div>
@@ -177,8 +177,8 @@ function BandCard({ label, band, suffix, onRefresh }: { label: string; band: Wif
 function Info({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="text-white">{value}</p>
+      <p className="text-xs text-text-muted">{label}</p>
+      <p className="text-text-primary">{value}</p>
     </div>
   )
 }
@@ -192,18 +192,18 @@ export default function WiFiPage() {
 
   useEffect(() => { fetchWifi() }, [fetchWifi])
 
-  if (!wifi) return <div className="text-slate-400 text-sm">Loading…</div>
+  if (!wifi) return <div className="text-text-muted text-sm">Loading…</div>
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-white">Wi-Fi</h1>
+      <h1 className="text-lg font-semibold text-text-primary">Wi-Fi</h1>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <BandCard label="2.4 GHz" band={wifi.band_2g} suffix="2g" onRefresh={fetchWifi} />
         <BandCard label="5 GHz" band={wifi.band_5g} suffix="5g" onRefresh={fetchWifi} />
       </div>
       {wifi.guest_ssid && (
         <Card title="Guest Network">
-          <p className="text-sm text-slate-300">SSID: <span className="font-medium text-white">{wifi.guest_ssid}</span></p>
+          <p className="text-sm text-text-secondary">SSID: <span className="font-medium text-text-primary">{wifi.guest_ssid}</span></p>
         </Card>
       )}
     </div>

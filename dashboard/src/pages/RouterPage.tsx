@@ -5,15 +5,15 @@ import Card from '../components/Card'
 function Input({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <div>
-      <label className="mb-0.5 block text-xs text-slate-400">{label}</label>
+      <label className="mb-0.5 block text-xs text-text-muted">{label}</label>
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none" />
+        className="w-full rounded-pill border border-divider bg-white/40 px-3 py-1.5 text-sm text-text-primary backdrop-blur-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20" />
     </div>
   )
 }
 
 function Alert({ msg, type = 'success' }: { msg: string; type?: 'success' | 'error' }) {
-  return <p className={`text-xs ${type === 'error' ? 'text-red-400' : 'text-green-400'}`}>{msg}</p>
+  return <p className={`text-xs ${type === 'error' ? 'text-red-500' : 'text-green-500'}`}>{msg}</p>
 }
 
 // ── DNS Tab ──────────────────────────────────────────────────────────────────
@@ -52,16 +52,16 @@ function DnsTab() {
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button onClick={save} disabled={saving}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+          className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
           {saving ? 'Saving\u2026' : 'Apply'}
         </button>
         <div className="flex gap-2">
           <button onClick={() => setDns(d => ({ ...d, primary: '1.1.1.1', secondary: '1.0.0.1', ipv6_primary: '2606:4700:4700::1111', ipv6_secondary: '2606:4700:4700::1001' }))}
-            className="text-xs text-slate-400 hover:text-white">Cloudflare</button>
+            className="text-xs text-primary hover:text-primary-hover transition-colors">Cloudflare</button>
           <button onClick={() => setDns(d => ({ ...d, primary: '8.8.8.8', secondary: '8.8.4.4', ipv6_primary: '2001:4860:4860::8888', ipv6_secondary: '2001:4860:4860::8844' }))}
-            className="text-xs text-slate-400 hover:text-white">Google</button>
+            className="text-xs text-primary hover:text-primary-hover transition-colors">Google</button>
           <button onClick={() => setDns(d => ({ ...d, primary: '9.9.9.9', secondary: '149.112.112.112', ipv6_primary: '2620:fe::fe', ipv6_secondary: '2620:fe::9' }))}
-            className="text-xs text-slate-400 hover:text-white">Quad9</button>
+            className="text-xs text-primary hover:text-primary-hover transition-colors">Quad9</button>
         </div>
       </div>
     </Card>
@@ -99,7 +99,7 @@ function LanTab() {
       </div>
       <div className="mt-4">
         <button onClick={save} disabled={saving}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50">
+          className="rounded-pill bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary-hover transition-all duration-200 disabled:opacity-40">
           {saving ? 'Saving\u2026' : 'Apply'}
         </button>
       </div>
@@ -113,15 +113,15 @@ export default function RouterPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-white">Router</h1>
+      <h1 className="text-lg font-semibold text-text-primary">Router</h1>
 
-      <div className="flex gap-1 rounded-xl bg-slate-800 p-1 w-fit">
+      <div className="glass-subtle !rounded-glass p-1 flex gap-1 w-fit">
         {([
           ['lan', 'LAN / DHCP'],
           ['dns', 'DNS'],
         ] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${tab === id ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+            className={`rounded-pill px-3 py-1.5 text-sm font-medium transition-all duration-200 ${tab === id ? 'bg-white/60 text-text-primary' : 'text-text-muted hover:text-text-secondary'}`}>
             {label}
           </button>
         ))}

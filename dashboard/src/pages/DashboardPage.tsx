@@ -5,34 +5,34 @@ import Card, { Stat } from '../components/Card'
 import { usePolling } from '../hooks/usePolling'
 
 function signalColor(rsrp?: number) {
-  if (rsrp == null) return 'text-slate-400'
-  if (rsrp > -80) return 'text-green-400'
-  if (rsrp > -100) return 'text-yellow-400'
-  return 'text-red-400'
+  if (rsrp == null) return 'text-text-muted'
+  if (rsrp > -80) return 'text-green-500'
+  if (rsrp > -100) return 'text-yellow-500'
+  return 'text-red-500'
 }
 
 function SignalBars({ bars }: { bars?: number }) {
   const n = bars ?? 0
-  const color = n >= 4 ? '#4ade80' : n >= 2 ? '#facc15' : '#f87171'
+  const color = n >= 4 ? '#22c55e' : n >= 2 ? '#eab308' : '#ef4444'
   const heights = [4, 7, 10, 13, 16]
   return (
     <div className="flex items-end gap-0.5">
       {heights.map((h, i) => (
         <div key={i} className="w-2.5 rounded-sm transition-colors"
-          style={{ height: `${h}px`, backgroundColor: i < n ? color : '#1e293b' }} />
+          style={{ height: `${h}px`, backgroundColor: i < n ? color : '#cbd5e1' }} />
       ))}
     </div>
   )
 }
 
 function BatteryIcon({ percent, charging }: { percent: number; charging: boolean }) {
-  const fill = percent > 20 ? (percent > 50 ? '#4ade80' : '#facc15') : '#f87171'
+  const fill = percent > 20 ? (percent > 50 ? '#22c55e' : '#eab308') : '#ef4444'
   return (
     <div className="relative flex h-6 w-10 items-center">
-      <div className="h-5 w-9 rounded border-2 border-slate-500">
+      <div className="h-5 w-9 rounded border-2 border-slate-400">
         <div className="h-full rounded-sm transition-all" style={{ width: `${percent}%`, backgroundColor: fill }} />
       </div>
-      <div className="absolute -right-1 h-2 w-1.5 rounded-r bg-slate-500" />
+      <div className="absolute -right-1 h-2 w-1.5 rounded-r bg-slate-400" />
       {charging && <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white">&#x26A1;</span>}
     </div>
   )
@@ -49,8 +49,8 @@ function formatUptime(secs?: number) {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-slate-400">{label}</span>
-      <span className="truncate text-right font-medium text-white">{value}</span>
+      <span className="text-text-secondary">{label}</span>
+      <span className="truncate text-right font-medium text-text-primary">{value}</span>
     </div>
   )
 }
@@ -88,11 +88,13 @@ export default function DashboardPage() {
   const primaryCarrier = signal?.lte_carriers?.[0] || signal?.nr_carriers?.[0]
   const pccRsrp = primaryCarrier?.rsrp ?? signal?.rsrp
 
+  const isNR = signal?.type?.includes('NR') || signal?.type?.includes('5G')
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-white">Dashboard</h1>
-        {error && <span className="text-xs text-red-400">{error}</span>}
+        <h1 className="text-lg font-semibold text-text-primary">Dashboard</h1>
+        {error && <span className="text-xs text-red-500">{error}</span>}
       </div>
 
       {/* Top stats row */}
@@ -101,32 +103,34 @@ export default function DashboardPage() {
         <Card>
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Signal</p>
+              <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Signal</p>
               <p className={`mt-1 text-2xl font-bold ${signalColor(pccRsrp)}`}>
                 {pccRsrp != null ? `${pccRsrp}` : '—'}
               </p>
-              <p className="text-xs text-slate-500">dBm RSRP</p>
+              <p className="text-xs text-text-muted">dBm RSRP</p>
             </div>
             <SignalBars bars={signal?.signal_bars} />
           </div>
           <div className="mt-2 flex items-center gap-1.5">
-            <span className="rounded bg-blue-900/50 px-1.5 py-0.5 text-xs font-medium text-blue-300">
+            <span className={`rounded-pill px-2 py-0.5 text-xs font-medium ${
+              isNR ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-primary'
+            }`}>
               {signal?.type ?? '—'}
             </span>
-            <span className="text-xs text-slate-500">{signal?.band ?? ''}</span>
+            <span className="text-xs text-text-muted">{signal?.band ?? ''}</span>
           </div>
         </Card>
 
         {/* Battery */}
         <Card>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Battery</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Battery</p>
           <div className="mt-1 flex items-center gap-3">
-            <p className="text-2xl font-bold text-white">
+            <p className="text-2xl font-bold text-text-primary">
               {battery?.percent != null ? `${battery.percent}%` : '—'}
             </p>
             {battery && <BatteryIcon percent={battery.percent} charging={battery.charging} />}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-text-muted">
             {battery?.charging ? 'Charging' : 'On battery'}
             {battery?.voltage_mv ? ` · ${(battery.voltage_mv / 1000).toFixed(2)}V` : ''}
             {battery?.temperature_c ? ` · ${battery.temperature_c}°C` : ''}
@@ -135,29 +139,29 @@ export default function DashboardPage() {
 
         {/* Download */}
         <Card>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Download</p>
-          <p className="mt-1 text-2xl font-bold text-green-400">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Download</p>
+          <p className="mt-1 text-2xl font-bold text-green-500">
             {speed ? formatSpeed(speed.rx_bps) : '—'}
           </p>
           {speed && speed.max_rx_bps > 0 && (
-            <p className="mt-1 text-xs text-slate-500">Peak: {formatSpeed(speed.max_rx_bps)}</p>
+            <p className="mt-1 text-xs text-text-muted">Peak: {formatSpeed(speed.max_rx_bps)}</p>
           )}
         </Card>
 
         {/* Upload */}
         <Card>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Upload</p>
-          <p className="mt-1 text-2xl font-bold text-blue-400">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Upload</p>
+          <p className="mt-1 text-2xl font-bold text-primary">
             {speed ? formatSpeed(speed.tx_bps) : '—'}
           </p>
           {speed && speed.max_tx_bps > 0 && (
-            <p className="mt-1 text-xs text-slate-500">Peak: {formatSpeed(speed.max_tx_bps)}</p>
+            <p className="mt-1 text-xs text-text-muted">Peak: {formatSpeed(speed.max_tx_bps)}</p>
           )}
         </Card>
       </div>
 
       {/* Info grid */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* Signal detail */}
         <Card title="Signal Detail">
           <div className="grid grid-cols-2 gap-3">
@@ -167,21 +171,21 @@ export default function DashboardPage() {
             <Stat label="RSSI" value={primaryCarrier?.rssi != null ? `${primaryCarrier.rssi} dBm` : '—'} />
           </div>
           {signal && signal.lte_carriers.length > 0 && (
-            <div className="mt-3 border-t border-slate-700/50 pt-3">
-              <p className="mb-1.5 text-xs text-slate-400">LTE ({signal.lte_carriers.length} carrier{signal.lte_carriers.length > 1 ? 's' : ''})</p>
+            <div className="mt-3 border-t border-divider pt-3">
+              <p className="mb-1.5 text-xs text-text-muted">LTE ({signal.lte_carriers.length} carrier{signal.lte_carriers.length > 1 ? 's' : ''})</p>
               <div className="flex flex-wrap gap-1.5">
                 {signal.lte_carriers.map((c, i) => (
-                  <span key={i} className="rounded bg-blue-900/50 px-2 py-0.5 text-xs font-medium text-blue-300">{c.band}{c.rsrp != null ? `: ${c.rsrp} dBm` : ''}</span>
+                  <span key={i} className="rounded-pill bg-blue-100 px-2 py-0.5 text-xs font-medium text-primary">{c.band}{c.rsrp != null ? `: ${c.rsrp} dBm` : ''}</span>
                 ))}
               </div>
             </div>
           )}
           {signal && signal.nr_carriers.length > 0 && (
-            <div className="mt-3 border-t border-slate-700/50 pt-3">
-              <p className="mb-1.5 text-xs text-slate-400">5G NR ({signal.nr_carriers.length} carrier{signal.nr_carriers.length > 1 ? 's' : ''})</p>
+            <div className="mt-3 border-t border-divider pt-3">
+              <p className="mb-1.5 text-xs text-text-muted">5G NR ({signal.nr_carriers.length} carrier{signal.nr_carriers.length > 1 ? 's' : ''})</p>
               <div className="flex flex-wrap gap-1.5">
                 {signal.nr_carriers.map((c, i) => (
-                  <span key={i} className="rounded bg-purple-900/50 px-2 py-0.5 text-xs font-medium text-purple-300">{c.band}: {c.rsrp} dBm</span>
+                  <span key={i} className="rounded-pill bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">{c.band}: {c.rsrp} dBm</span>
                 ))}
               </div>
             </div>
@@ -226,16 +230,16 @@ export default function DashboardPage() {
                 { label: 'Total', data: usage.total },
               ].map(({ label, data }) => (
                 <div key={label}>
-                  <p className="text-xs text-slate-400">{label}</p>
+                  <p className="text-xs text-text-muted">{label}</p>
                   <div className="mt-0.5 flex gap-4 text-sm">
-                    <span className="text-green-400">&#x2193; {formatBytes(data.rx_bytes)}</span>
-                    <span className="text-blue-400">&#x2191; {formatBytes(data.tx_bytes)}</span>
+                    <span className="text-green-500">&#x2193; {formatBytes(data.rx_bytes)}</span>
+                    <span className="text-primary">&#x2191; {formatBytes(data.tx_bytes)}</span>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">Loading...</p>
+            <p className="text-sm text-text-muted">Loading...</p>
           )}
         </Card>
       </div>

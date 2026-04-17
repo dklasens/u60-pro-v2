@@ -20,31 +20,31 @@ export default function NetworkPage() {
     return () => clearInterval(id)
   }, [fetchData])
 
-  if (loading) return <div className="text-slate-400 text-sm">Loading…</div>
+  if (loading) return <div className="text-text-muted text-sm">Loading…</div>
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold text-white">Network</h1>
+      <h1 className="text-lg font-semibold text-text-primary">Network</h1>
 
       <Card title={`Connected Clients (${clients.length})`}>
         {clients.length === 0 ? (
-          <p className="text-sm text-slate-500">No clients connected</p>
+          <p className="text-sm text-text-muted">No clients connected</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-xs text-slate-400">
+                <tr className="text-left text-xs text-text-muted">
                   <th className="pb-2 pr-4 font-medium">Hostname</th>
                   <th className="pb-2 pr-4 font-medium">IP Address</th>
                   <th className="pb-2 font-medium">MAC Address</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-700/50">
+              <tbody className="divide-y divide-divider">
                 {clients.map(c => (
                   <tr key={c.mac}>
-                    <td className="py-2 pr-4 text-white">{c.hostname || '—'}</td>
-                    <td className="py-2 pr-4 font-mono text-slate-300">{c.ip ?? '—'}</td>
-                    <td className="py-2 font-mono text-slate-400 text-xs">{c.mac}</td>
+                    <td className="py-2 pr-4 text-text-primary">{c.hostname || '—'}</td>
+                    <td className="py-2 pr-4 font-mono text-text-secondary">{c.ip ?? '—'}</td>
+                    <td className="py-2 font-mono text-text-muted text-xs">{c.mac}</td>
                   </tr>
                 ))}
               </tbody>
