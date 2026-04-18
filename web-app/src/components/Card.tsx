@@ -9,12 +9,12 @@ export default function Card({ title, children, className = '', action }: CardPr
   return (
     <div className={`bg-white rounded-2xl shadow-macos-lg border border-black/5 transition-all duration-150 ${className}`}>
       {title && (
-        <div className="flex items-center justify-between bg-white px-6 py-4 border-b border-black/5 rounded-t-2xl">
+        <div className="flex items-center justify-between bg-white px-4 sm:px-6 py-4 border-b border-black/5 rounded-t-2xl">
           <h2 className="text-sm font-bold text-gray-900">{title}</h2>
           {action}
         </div>
       )}
-      <div className="p-6 space-y-5">{children}</div>
+      <div className="p-4 sm:p-6 space-y-5">{children}</div>
     </div>
   )
 }

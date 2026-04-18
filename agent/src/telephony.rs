@@ -8,17 +8,14 @@ use crate::handlers::AppState;
 // ---------------------------------------------------------------------------
 
 const GSM7_TABLE: &[&str] = &[
-    "@", "\u{00A3}", "$", "\u{00A5}", "\u{00E8}", "\u{00E9}", "\u{00F9}",
-    "\u{00EC}", "\u{00F2}", "\u{00C7}", "\n", "\u{00D8}", "\u{00F8}", "\r",
-    "\u{00C5}", "\u{00E5}", "_", "_", " ", "!", "\"",
-    "#", "\u{00A4}", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?",
-    "\u{00A1}", "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
-    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
-    "\u{00C4}", "\u{00D6}", "\u{00D1}", "\u{00DC}", "\u{00A7}",
-    "\u{00BF}", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-    "\u{00E4}", "\u{00F6}", "\u{00F1}", "\u{00FC}", "\u{00E0}",
+    "@", "\u{00A3}", "$", "\u{00A5}", "\u{00E8}", "\u{00E9}", "\u{00F9}", "\u{00EC}", "\u{00F2}",
+    "\u{00C7}", "\n", "\u{00D8}", "\u{00F8}", "\r", "\u{00C5}", "\u{00E5}", "_", "_", " ", "!",
+    "\"", "#", "\u{00A4}", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", "0", "1", "2",
+    "3", "4", "5", "6", "7", "8", "9", ":", ";", "<", "=", ">", "?", "\u{00A1}", "A", "B", "C",
+    "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V",
+    "W", "X", "Y", "Z", "\u{00C4}", "\u{00D6}", "\u{00D1}", "\u{00DC}", "\u{00A7}", "\u{00BF}",
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
+    "t", "u", "v", "w", "x", "y", "z", "\u{00E4}", "\u{00F6}", "\u{00F1}", "\u{00FC}", "\u{00E0}",
 ];
 
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
@@ -114,7 +111,15 @@ fn decode_ussd_response(hex_str: &str, dcs: u32) -> String {
 
 fn parse_clcc(raw: &str) -> Vec<Value> {
     let dir_names = ["mo", "mt"];
-    let stat_names = ["active", "held", "dialing", "alerting", "incoming", "waiting", "releasing"];
+    let stat_names = [
+        "active",
+        "held",
+        "dialing",
+        "alerting",
+        "incoming",
+        "waiting",
+        "releasing",
+    ];
 
     let mut calls = Vec::new();
     for line in raw.lines() {
@@ -157,7 +162,9 @@ fn parse_cusd(raw: &str) -> Option<(i64, String, u32)> {
         };
         let rest = rest.trim();
         // Parse status
-        let status_end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+        let status_end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
         let status: i64 = rest[..status_end].parse().unwrap_or(-1);
         let after_status = &rest[status_end..];
 
@@ -274,7 +281,10 @@ fn detect_stk_support(at_port: &crate::at_cmd::AtPort) -> (bool, String) {
         }
     }
 
-    (false, "No STK AID in EF_DIR and no STIN response — SIM does not support STK".into())
+    (
+        false,
+        "No STK AID in EF_DIR and no STIN response — SIM does not support STK".into(),
+    )
 }
 
 fn format_ussd_response(parsed: (i64, String, u32)) -> Value {
@@ -306,7 +316,10 @@ pub fn call_dial(state: &AppState, body: &[u8]) -> (u16, Value) {
         _ => return (400, json!({"ok": false, "error": "missing number"})),
     };
     // Sanitize: keep digits, +, *, #
-    let clean: String = number.chars().filter(|c| c.is_ascii_digit() || "+*#".contains(*c)).collect();
+    let clean: String = number
+        .chars()
+        .filter(|c| c.is_ascii_digit() || "+*#".contains(*c))
+        .collect();
     match at_cmd::send(&state.at_port, &format!("ATD{clean};"), 5) {
         Ok(resp) if resp.contains("ERROR") => (500, json!({"ok": false, "error": "dial failed"})),
         Ok(_) => (200, json!({"ok": true, "data": {"status": "ok"}})),
@@ -390,7 +403,10 @@ pub fn ussd_send(state: &AppState, body: &[u8]) -> (u16, Value) {
         Some(c) if !c.is_empty() => c,
         _ => return (400, json!({"ok": false, "error": "missing code"})),
     };
-    let clean: String = code.chars().filter(|c| c.is_ascii_digit() || "*#+".contains(*c)).collect();
+    let clean: String = code
+        .chars()
+        .filter(|c| c.is_ascii_digit() || "*#+".contains(*c))
+        .collect();
     let at = format!("AT+CUSD=1,\"{clean}\",15");
     match at_cmd::send(&state.at_port, &at, 8) {
         Ok(resp) => {
@@ -398,16 +414,22 @@ pub fn ussd_send(state: &AppState, body: &[u8]) -> (u16, Value) {
                 return (500, json!({"ok": false, "error": "USSD failed"}));
             }
             match parse_cusd(&resp) {
-                Some(parsed) => (200, json!({"ok": true, "data": format_ussd_response(parsed)})),
+                Some(parsed) => (
+                    200,
+                    json!({"ok": true, "data": format_ussd_response(parsed)}),
+                ),
                 None => {
                     let clean_resp: String = resp.chars().filter(|c| !c.is_control()).collect();
-                    (200, json!({"ok": true, "data": {
-                        "response": clean_resp,
-                        "raw_response": clean_resp,
-                        "status": -1,
-                        "dcs": 15,
-                        "session_active": false,
-                    }}))
+                    (
+                        200,
+                        json!({"ok": true, "data": {
+                            "response": clean_resp,
+                            "raw_response": clean_resp,
+                            "status": -1,
+                            "dcs": 15,
+                            "session_active": false,
+                        }}),
+                    )
                 }
             }
         }
@@ -425,20 +447,29 @@ pub fn ussd_respond(state: &AppState, body: &[u8]) -> (u16, Value) {
         Some(r) if !r.is_empty() => r,
         _ => return (400, json!({"ok": false, "error": "missing reply"})),
     };
-    let clean: String = reply.chars().filter(|c| c.is_ascii_digit() || "*#+".contains(*c)).collect();
+    let clean: String = reply
+        .chars()
+        .filter(|c| c.is_ascii_digit() || "*#+".contains(*c))
+        .collect();
     let at = format!("AT+CUSD=1,\"{clean}\",15");
     match at_cmd::send(&state.at_port, &at, 8) {
         Ok(resp) => match parse_cusd(&resp) {
-            Some(parsed) => (200, json!({"ok": true, "data": format_ussd_response(parsed)})),
+            Some(parsed) => (
+                200,
+                json!({"ok": true, "data": format_ussd_response(parsed)}),
+            ),
             None => {
                 let clean_resp: String = resp.chars().filter(|c| !c.is_control()).collect();
-                (200, json!({"ok": true, "data": {
-                    "response": clean_resp,
-                    "raw_response": clean_resp,
-                    "status": -1,
-                    "dcs": 15,
-                    "session_active": false,
-                }}))
+                (
+                    200,
+                    json!({"ok": true, "data": {
+                        "response": clean_resp,
+                        "raw_response": clean_resp,
+                        "status": -1,
+                        "dcs": 15,
+                        "session_active": false,
+                    }}),
+                )
             }
         },
         Err(e) => (503, json!({"ok": false, "error": e})),
@@ -458,11 +489,14 @@ pub fn stk_menu(state: &AppState) -> (u16, Value) {
     let (supported, diag) = detect_stk_support(&state.at_port);
 
     if !supported {
-        return (200, json!({"ok": true, "data": {
-            "supported": false,
-            "items": [],
-            "reason": diag,
-        }}));
+        return (
+            200,
+            json!({"ok": true, "data": {
+                "supported": false,
+                "items": [],
+                "reason": diag,
+            }}),
+        );
     }
 
     let mut diagnostics = vec![diag];
@@ -473,12 +507,15 @@ pub fn stk_menu(state: &AppState) -> (u16, Value) {
             let hex = extract_hex(&resp, "CUSATD:");
             if let Some(hex) = hex {
                 if let Some(menu) = parse_stk_menu_tlv(&hex) {
-                    return (200, json!({"ok": true, "data": {
-                        "supported": true,
-                        "title": menu.title,
-                        "items": menu.items,
-                        "source": "at_cusatd",
-                    }}));
+                    return (
+                        200,
+                        json!({"ok": true, "data": {
+                            "supported": true,
+                            "title": menu.title,
+                            "items": menu.items,
+                            "source": "at_cusatd",
+                        }}),
+                    );
                 }
             }
             diagnostics.push("AT+CUSATD=1 responded but no parseable menu".into());
@@ -497,37 +534,49 @@ pub fn stk_menu(state: &AppState) -> (u16, Value) {
                     if !stgi.contains("ERROR") {
                         let (title, items) = parse_stgi_response(&stgi);
                         if !items.is_empty() {
-                            return (200, json!({"ok": true, "data": {
-                                "supported": true,
-                                "title": title,
-                                "items": items,
-                                "source": "at_stgi",
-                            }}));
+                            return (
+                                200,
+                                json!({"ok": true, "data": {
+                                    "supported": true,
+                                    "title": title,
+                                    "items": items,
+                                    "source": "at_stgi",
+                                }}),
+                            );
                         }
                     }
                 }
             }
-            diagnostics.push(format!("AT+STIN? returned type {:?}, no menu from STGI", stin_type));
+            diagnostics.push(format!(
+                "AT+STIN? returned type {:?}, no menu from STGI",
+                stin_type
+            ));
         }
     }
 
     // STK supported but no menu currently available
-    (200, json!({"ok": true, "data": {
-        "supported": true,
-        "items": [],
-        "reason": "no proactive command pending",
-        "diagnostics": diagnostics,
-    }}))
+    (
+        200,
+        json!({"ok": true, "data": {
+            "supported": true,
+            "items": [],
+            "reason": "no proactive command pending",
+            "diagnostics": diagnostics,
+        }}),
+    )
 }
 
 /// POST /api/stk/select — body: {"item_id": 1}
 pub fn stk_select(state: &AppState, body: &[u8]) -> (u16, Value) {
     let (supported, diag) = detect_stk_support(&state.at_port);
     if !supported {
-        return (200, json!({"ok": true, "data": {
-            "supported": false,
-            "reason": diag,
-        }}));
+        return (
+            200,
+            json!({"ok": true, "data": {
+                "supported": false,
+                "reason": diag,
+            }}),
+        );
     }
 
     let parsed: Value = match serde_json::from_slice(body) {
@@ -546,20 +595,26 @@ pub fn stk_select(state: &AppState, body: &[u8]) -> (u16, Value) {
             if let Some(hex) = hex {
                 if let Some(menu) = parse_stk_menu_tlv(&hex) {
                     if !menu.items.is_empty() {
-                        return (200, json!({"ok": true, "data": {
-                            "type": "menu",
-                            "title": menu.title,
-                            "items": menu.items,
-                            "source": "at_cusate",
-                        }}));
+                        return (
+                            200,
+                            json!({"ok": true, "data": {
+                                "type": "menu",
+                                "title": menu.title,
+                                "items": menu.items,
+                                "source": "at_cusate",
+                            }}),
+                        );
                     }
                 }
             }
             let text: String = resp.chars().filter(|c| !c.is_control()).collect();
-            return (200, json!({"ok": true, "data": {
-                "type": "display",
-                "data": text,
-            }}));
+            return (
+                200,
+                json!({"ok": true, "data": {
+                    "type": "display",
+                    "data": text,
+                }}),
+            );
         }
     }
     (500, json!({"ok": false, "error": "item selection failed"}))
@@ -572,7 +627,11 @@ pub fn stk_select(state: &AppState, body: &[u8]) -> (u16, Value) {
 fn extract_hex(resp: &str, prefix: &str) -> Option<String> {
     for line in resp.lines() {
         if let Some(rest) = line.strip_prefix(prefix) {
-            let hex: String = rest.trim().chars().filter(|c| c.is_ascii_hexdigit()).collect();
+            let hex: String = rest
+                .trim()
+                .chars()
+                .filter(|c| c.is_ascii_hexdigit())
+                .collect();
             if hex.len() >= 4 {
                 return Some(hex);
             }
@@ -591,7 +650,11 @@ fn extract_hex(resp: &str, prefix: &str) -> Option<String> {
 fn extract_number_after(resp: &str, prefix: &str) -> Option<i64> {
     for line in resp.lines() {
         if let Some(rest) = line.strip_prefix(prefix) {
-            let num_str: String = rest.trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+            let num_str: String = rest
+                .trim()
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
             return num_str.parse().ok();
         }
     }

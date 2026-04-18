@@ -26,7 +26,8 @@ pub fn network_lan_status(_state: &AppState) -> (u16, Value) {
 
 pub fn network_clients(_state: &AppState) -> (u16, Value) {
     // Build hostname lookup from DHCP leases
-    let mut hostname_by_mac: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut hostname_by_mac: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     if let Ok(dhcp) = ubus::call("luci-rpc", "getDHCPLeases", Some(r#"{"family":4}"#)) {
         if let Some(leases) = dhcp.get("dhcp_leases").and_then(|v| v.as_array()) {
             for l in leases {
@@ -50,9 +51,13 @@ pub fn network_clients(_state: &AppState) -> (u16, Value) {
                 let mac = cols[3].to_lowercase();
                 let dev = cols[5];
                 // Skip incomplete entries (flags 0x0) and loopback
-                if flags == "0x0" || mac == "00:00:00:00:00:00" { continue; }
+                if flags == "0x0" || mac == "00:00:00:00:00:00" {
+                    continue;
+                }
                 // Only LAN interfaces (br-lan, usb0, etc)
-                if dev.starts_with("rmnet") { continue; }
+                if dev.starts_with("rmnet") {
+                    continue;
+                }
                 let hostname = hostname_by_mac.get(&mac).cloned();
                 clients.push(json!({
                     "mac": mac,
@@ -73,7 +78,11 @@ pub fn network_speeds(_state: &AppState) -> (u16, Value) {
 }
 
 pub fn network_rmnet(_state: &AppState) -> (u16, Value) {
-    match ubus::call("network.device", "status", Some(r#"{"name":"rmnet_data0"}"#)) {
+    match ubus::call(
+        "network.device",
+        "status",
+        Some(r#"{"name":"rmnet_data0"}"#),
+    ) {
         Ok(data) => (200, json!({"ok": true, "data": data})),
         Err(e) => (503, json!({"ok": false, "error": e})),
     }

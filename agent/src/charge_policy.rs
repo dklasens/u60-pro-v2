@@ -45,24 +45,25 @@ pub struct ChargeLimitEnforcer {
 
 const SYSFS_CHARGE_LIMIT: &str = "/sys/class/power_supply/battery/charge_control_limit";
 
-/// Check if charging is stopped. Reads sysfs charge_control_limit (primary)
-/// with ubus fallback.
+/// Check if charging is stopped. Returns true ONLY if BOTH sysfs and ubus indicate 
+/// charging is stopped. If either is allowing charge, the device might still be charging.
 pub fn is_charging_stopped() -> bool {
-    // Primary: sysfs — charge_control_limit > 0 means stopped
-    if let Ok(s) = fs::read_to_string(SYSFS_CHARGE_LIMIT) {
-        if let Ok(v) = s.trim().parse::<u8>() {
-            return v > 0;
-        }
-    }
-    // Fallback: ubus (inverted naming: "enable" = stopped)
-    ubus::call("zwrt_bsp.charger", "list", Some("{}"))
+    let sysfs_stopped = fs::read_to_string(SYSFS_CHARGE_LIMIT)
+        .ok()
+        .and_then(|s| s.trim().parse::<u8>().ok())
+        .map(|v| v > 0)
+        .unwrap_or(false);
+
+    let ubus_stopped = ubus::call("zwrt_bsp.charger", "list", Some("{}"))
         .ok()
         .and_then(|v| {
             v["direct_power_supply_mode"]
                 .as_str()
                 .map(|s| s == "enable")
         })
-        .unwrap_or(false)
+        .unwrap_or(false);
+
+    sysfs_stopped && ubus_stopped
 }
 
 /// Set charging state via BOTH sysfs charge_control_limit AND ubus.
@@ -77,7 +78,14 @@ pub fn set_charging(allow: bool) {
     for attempt in 1..=3 {
         if fs::write(SYSFS_CHARGE_LIMIT, sysfs_val).is_ok() {
             std::thread::sleep(std::time::Duration::from_millis(200));
-            if is_charging_stopped() != allow {
+            
+            let sysfs_actual = fs::read_to_string(SYSFS_CHARGE_LIMIT)
+                .ok()
+                .and_then(|s| s.trim().parse::<u8>().ok())
+                .map(|v| v > 0)
+                .unwrap_or(!allow); // default to opposite of what we want on read error
+
+            if sysfs_actual != allow {
                 eprintln!("[INFO] [charge_policy] {action} via sysfs OK (attempt {attempt})");
                 sysfs_ok = true;
                 break;

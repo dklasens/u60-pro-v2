@@ -369,7 +369,7 @@ export default function AdvancedPage() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-3xl font-bold text-gray-900">Advanced</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Advanced</h1>
 
       <div className="bg-gray-50/50 rounded-2xl p-1 flex gap-1">
         {tabs.map(t => (

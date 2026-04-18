@@ -52,7 +52,9 @@ impl EventBus {
                     }
                     // Process exited — reap it
                     let _ = child.wait();
-                    eprintln!("[event_bus] ubus listen exited, restarting in {RESTART_DELAY_SECS}s");
+                    eprintln!(
+                        "[event_bus] ubus listen exited, restarting in {RESTART_DELAY_SECS}s"
+                    );
                 }
                 Err(e) => {
                     eprintln!("[event_bus] failed to spawn ubus listen: {e}");

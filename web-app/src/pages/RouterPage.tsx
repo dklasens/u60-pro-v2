@@ -57,11 +57,11 @@ function DnsTab() {
         </button>
         <div className="flex gap-2">
           <button onClick={() => setDns(d => ({ ...d, primary: '1.1.1.1', secondary: '1.0.0.1', ipv6_primary: '2606:4700:4700::1111', ipv6_secondary: '2606:4700:4700::1001' }))}
-            className="text-xs text-slds-blue hover:text-slds-blueHover transition-colors font-bold">Cloudflare</button>
+            className="py-2 px-2 text-xs text-slds-blue hover:text-slds-blueHover transition-colors font-bold">Cloudflare</button>
           <button onClick={() => setDns(d => ({ ...d, primary: '8.8.8.8', secondary: '8.8.4.4', ipv6_primary: '2001:4860:4860::8888', ipv6_secondary: '2001:4860:4860::8844' }))}
-            className="text-xs text-slds-blue hover:text-slds-blueHover transition-colors font-bold">Google</button>
+            className="py-2 px-2 text-xs text-slds-blue hover:text-slds-blueHover transition-colors font-bold">Google</button>
           <button onClick={() => setDns(d => ({ ...d, primary: '9.9.9.9', secondary: '149.112.112.112', ipv6_primary: '2620:fe::fe', ipv6_secondary: '2620:fe::9' }))}
-            className="text-xs text-slds-blue hover:text-slds-blueHover transition-colors font-bold">Quad9</button>
+            className="py-2 px-2 text-xs text-slds-blue hover:text-slds-blueHover transition-colors font-bold">Quad9</button>
         </div>
       </div>
     </Card>
@@ -110,7 +110,7 @@ export default function RouterPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-3xl font-bold text-gray-900">Router</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Router</h1>
 
       <div className="bg-gray-50/50 rounded-2xl p-1 flex gap-1 w-fit border border-gray-200/50">
         {([
@@ -118,7 +118,7 @@ export default function RouterPage() {
           ['dns', 'DNS'],
         ] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`rounded-xl px-3 py-1.5 text-sm font-medium transition-all duration-150 ${
+            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-150 ${
               tab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-600'
             }`}>
             {label}

@@ -24,12 +24,13 @@ export default function NetworkPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-3xl font-bold text-gray-900">Network</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Network</h1>
 
       <Card title={`Connected Clients (${clients.length})`}>
         {clients.length === 0 ? (
           <p className="text-sm text-gray-400">No clients connected</p>
         ) : (
+          <div className="relative">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -49,6 +50,8 @@ export default function NetworkPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent sm:hidden" />
           </div>
         )}
       </Card>

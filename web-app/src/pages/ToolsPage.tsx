@@ -48,15 +48,26 @@ function UsbTool() {
 function RebootTool() {
   const [confirm, setConfirm] = useState(false)
   const [rebooting, setRebooting] = useState(false)
+  const [msg, setMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null)
 
   async function doReboot() {
     setRebooting(true)
-    try { await api.reboot() } catch { /* ignore */ }
+    setMsg({ type: 'info', text: 'Sending reboot command...' })
+    try {
+      await api.reboot()
+      setMsg({ type: 'success', text: 'Reboot command sent. Device should restart within about 10-30 seconds.' })
+      setConfirm(false)
+    } catch (e) {
+      setMsg({ type: 'error', text: e instanceof Error ? e.message : 'Failed to reboot device.' })
+    } finally {
+      setRebooting(false)
+    }
   }
 
   return (
     <Section title="Device Reboot">
       <p className="mb-3 text-xs text-gray-400">Reboot the router. All connections will be temporarily interrupted.</p>
+      {msg && <div className="mb-3"><Alert type={msg.type} msg={msg.text} /></div>}
       {!confirm ? (
         <button onClick={() => setConfirm(true)}
           className="rounded-xl bg-red-50 px-4 py-2 text-sm font-bold text-red-600 border border-red-200 hover:bg-red-100 transition-all duration-150">
@@ -81,7 +92,7 @@ function RebootTool() {
 export default function ToolsPage() {
   return (
     <div className="space-y-4">
-      <h1 className="text-3xl font-bold text-gray-900">Tools</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Tools</h1>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <UsbTool />
         <RebootTool />

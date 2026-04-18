@@ -47,6 +47,19 @@ fn main() {
     // Set password from environment if provided
     if let Ok(pw) = std::env::var("ZTE_AGENT_PASSWORD") {
         state.auth.set_password(&pw);
+    } else {
+        // Fallback: try reading from the startup script if executed manually
+        if let Ok(script) = std::fs::read_to_string("/data/local/tmp/start_zte_agent.sh") {
+            for line in script.lines() {
+                if line.starts_with("export ZTE_AGENT_PASSWORD=") {
+                    let pw = line
+                        .trim_start_matches("export ZTE_AGENT_PASSWORD=")
+                        .trim_matches(|c| c == '\'' || c == '"');
+                    state.auth.set_password(pw);
+                    break;
+                }
+            }
+        }
     }
 
     // Event bus: single `ubus listen` process dispatches to subscribers
@@ -61,7 +74,9 @@ fn main() {
     state.sms_forward.start(sms_rx);
 
     // Apply persisted TTL settings if they exist
-    let _ = std::process::Command::new("sh").arg("/data/local/tmp/start_ttl.sh").output();
+    let _ = std::process::Command::new("sh")
+        .arg("/data/local/tmp/start_ttl.sh")
+        .output();
 
     wifi::enforce_wifi_state_on_boot();
 

@@ -30,7 +30,7 @@ export default function Sidebar({ page, onNavigate, open }: Props) {
       transition-transform duration-300 ease-out
       lg:static lg:translate-x-0
       ${open ? 'translate-x-0' : '-translate-x-full'}
-    `}>
+    `} style={{ paddingLeft: 'env(safe-area-inset-left, 0px)' }}>
       <div className="flex items-center gap-3 border-b border-black/5 px-5 py-5">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slds-blue shadow-macos">
           <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">

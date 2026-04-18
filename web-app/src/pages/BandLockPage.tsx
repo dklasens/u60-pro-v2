@@ -131,8 +131,8 @@ function BandLockSection({ title, description, bands, type, lockedBands, onAppli
         </p>
       )}
       <div className="mb-2 flex gap-2">
-        <button onClick={selectAll} className="text-xs text-slds-blue hover:text-slds-blueHover transition-colors">Select All</button>
-        <button onClick={selectNone} className="text-xs text-gray-500 hover:text-gray-900 transition-colors">Clear</button>
+        <button onClick={selectAll} className="py-2 text-xs text-slds-blue hover:text-slds-blueHover transition-colors">Select All</button>
+        <button onClick={selectNone} className="py-2 text-xs text-gray-500 hover:text-gray-900 transition-colors">Clear</button>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {bands.map(b => (
@@ -195,29 +195,29 @@ function CellLockSection({ type, onApplied }: { type: 'nr' | 'lte'; onApplied: (
         Lock to a specific cell by PCI and {type === 'nr' ? 'NR-ARFCN' : 'EARFCN'}.
         {type === 'nr' ? ' Band number is also required for NR.' : ''}
       </p>
-      <div className="flex flex-wrap items-end gap-2">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-2">
         <div>
           <label className="mb-1 block text-xs text-gray-500">PCI</label>
           <input type="number" value={pci} onChange={e => setPci(e.target.value)}
             placeholder="e.g. 30"
-            className="w-24 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
+            className="w-full sm:w-24 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
         </div>
         <div>
           <label className="mb-1 block text-xs text-gray-500">{type === 'nr' ? 'NR-ARFCN' : 'EARFCN'}</label>
           <input type="number" value={earfcn} onChange={e => setEarfcn(e.target.value)}
             placeholder={type === 'nr' ? 'e.g. 630912' : 'e.g. 3650'}
-            className="w-32 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
+            className="w-full sm:w-32 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
         </div>
         {type === 'nr' && (
           <div>
             <label className="mb-1 block text-xs text-gray-500">Band</label>
             <input type="number" value={band} onChange={e => setBand(e.target.value)}
               placeholder="e.g. 78"
-              className="w-20 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
+              className="w-full sm:w-20 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
           </div>
         )}
         <button onClick={apply} disabled={loading}
-          className="bg-slds-blue text-white py-3.5 rounded-2xl font-bold shadow-macos-lg shadow-slds-blue/20 hover:bg-slds-blue active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm">
+          className="w-full sm:w-auto bg-slds-blue text-white py-3.5 rounded-2xl font-bold shadow-macos-lg shadow-slds-blue/20 hover:bg-slds-blue active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm">
           {loading ? 'Locking...' : 'Lock Cell'}
         </button>
       </div>
@@ -243,6 +243,7 @@ function CurrentCellInfo({ signal, onLock }: {
       {nr_carriers.length > 0 && (
         <div className="mb-4">
           <p className="mb-2 text-xs font-medium uppercase text-purple-600">NR 5G Carriers</p>
+          <div className="relative">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
@@ -251,8 +252,8 @@ function CurrentCellInfo({ signal, onLock }: {
                   <th className="pb-1.5 pr-3">Band</th>
                   <th className="pb-1.5 pr-3">PCI</th>
                   <th className="pb-1.5 pr-3">ARFCN</th>
-                  <th className="pb-1.5 pr-3">BW</th>
-                  <th className="pb-1.5 pr-3">Freq</th>
+                  <th className="hidden sm:table-cell pb-1.5 pr-3">BW</th>
+                  <th className="hidden sm:table-cell pb-1.5 pr-3">Freq</th>
                   <th className="pb-1.5 pr-3">RSRP</th>
                   <th className="pb-1.5 pr-3">SINR</th>
                   <th className="pb-1.5"></th>
@@ -271,13 +272,13 @@ function CurrentCellInfo({ signal, onLock }: {
                       <td className="py-1.5 pr-3 font-medium text-purple-600">{c.band}</td>
                       <td className="py-1.5 pr-3 text-gray-900">{c.pci}</td>
                       <td className="py-1.5 pr-3 text-gray-900">{c.earfcn}</td>
-                      <td className="py-1.5 pr-3 text-gray-600">{c.bandwidth}</td>
-                      <td className="py-1.5 pr-3 text-gray-600">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
+                      <td className="hidden sm:table-cell py-1.5 pr-3 text-gray-600">{c.bandwidth}</td>
+                      <td className="hidden sm:table-cell py-1.5 pr-3 text-gray-600">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
                       <td className="py-1.5 pr-3 text-gray-900">{c.rsrp ?? '\u2014'}</td>
                       <td className="py-1.5 pr-3 text-gray-900">{c.sinr ?? '\u2014'}</td>
                       <td className="py-1.5">
                         <button onClick={() => onLock('nr', c.pci, c.earfcn, bandNum)}
-                          className="rounded-xl bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-600 hover:bg-purple-100 transition-all duration-200">
+                          className="rounded-xl bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-600 hover:bg-purple-100 transition-all duration-200">
                           Lock
                         </button>
                       </td>
@@ -287,12 +288,15 @@ function CurrentCellInfo({ signal, onLock }: {
               </tbody>
             </table>
           </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent sm:hidden" />
+          </div>
         </div>
       )}
 
       {lte_carriers.length > 0 && (
         <div>
           <p className="mb-2 text-xs font-medium uppercase text-slds-blue">LTE Carriers</p>
+          <div className="relative">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
@@ -301,8 +305,8 @@ function CurrentCellInfo({ signal, onLock }: {
                   <th className="pb-1.5 pr-3">Band</th>
                   <th className="pb-1.5 pr-3">PCI</th>
                   <th className="pb-1.5 pr-3">EARFCN</th>
-                  <th className="pb-1.5 pr-3">BW</th>
-                  <th className="pb-1.5 pr-3">Freq</th>
+                  <th className="hidden sm:table-cell pb-1.5 pr-3">BW</th>
+                  <th className="hidden sm:table-cell pb-1.5 pr-3">Freq</th>
                   <th className="pb-1.5 pr-3">RSRP</th>
                   <th className="pb-1.5 pr-3">SINR</th>
                   <th className="pb-1.5"></th>
@@ -319,13 +323,13 @@ function CurrentCellInfo({ signal, onLock }: {
                     <td className="py-1.5 pr-3 font-medium text-slds-blue">{c.band}</td>
                     <td className="py-1.5 pr-3 text-gray-900">{c.pci}</td>
                     <td className="py-1.5 pr-3 text-gray-900">{c.earfcn}</td>
-                    <td className="py-1.5 pr-3 text-gray-600">{c.bandwidth}</td>
-                    <td className="py-1.5 pr-3 text-gray-600">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
+                    <td className="hidden sm:table-cell py-1.5 pr-3 text-gray-600">{c.bandwidth}</td>
+                    <td className="hidden sm:table-cell py-1.5 pr-3 text-gray-600">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
                     <td className="py-1.5 pr-3 text-gray-900">{c.rsrp ?? '\u2014'}</td>
                     <td className="py-1.5 pr-3 text-gray-900">{c.sinr ?? '\u2014'}</td>
                     <td className="py-1.5">
                       <button onClick={() => onLock('lte', c.pci, c.earfcn)}
-                        className="rounded-xl bg-slds-blue/10 px-2 py-0.5 text-[10px] font-medium text-slds-blue hover:bg-slds-blue/10 transition-all duration-200">
+                        className="rounded-xl bg-slds-blue/10 px-3 py-1.5 text-xs font-medium text-slds-blue hover:bg-slds-blue/20 transition-all duration-200">
                         Lock
                       </button>
                     </td>
@@ -333,6 +337,8 @@ function CurrentCellInfo({ signal, onLock }: {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent sm:hidden" />
           </div>
         </div>
       )}
@@ -429,7 +435,7 @@ export default function BandLockPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-3xl font-bold text-gray-900">Band & Cell Locking</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Band & Cell Locking</h1>
 
       {lockMsg && (
         <div className={`rounded-2xl px-4 py-2 text-sm ${lockMsg.includes('failed') || lockMsg.includes('Failed') ? 'bg-red-100 text-red-500' : 'bg-green-100 text-green-500'}`}>

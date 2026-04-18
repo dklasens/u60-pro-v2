@@ -79,4 +79,3 @@ pub fn uci_commit(config: &str) -> Result<(), String> {
     }
     Ok(())
 }
-

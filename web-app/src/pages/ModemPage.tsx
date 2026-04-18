@@ -164,10 +164,10 @@ function ApnSection() {
                 <div className="flex gap-1.5">
                   {!p.isEnable && (
                     <button onClick={() => activateProfile(p.profileId)}
-                      className="bg-slds-blue text-white py-3.5 rounded-2xl font-bold shadow-macos-lg shadow-slds-blue/20 hover:bg-slds-blue active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm px-2 py-1 text-[10px]">Activate</button>
+                      className="rounded-xl bg-slds-blue text-white px-3 py-2 text-xs font-bold hover:bg-slds-blueHover active:scale-[0.98] transition-all">Activate</button>
                   )}
                   <button onClick={() => deleteProfile(p.profileId)}
-                    className="rounded-xl bg-red-500/10 px-2 py-1 text-[10px] font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">Delete</button>
+                    className="rounded-xl bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-500/20 transition-all duration-200">Delete</button>
                 </div>
               </div>
             ))}
@@ -307,7 +307,7 @@ function TtlSection() {
               {ipv6Active && <span className="rounded-xl bg-gray-50/50 px-1.5 py-0.5 text-[10px] text-gray-500">IPv4 + IPv6</span>}
             </div>
             
-            <div className="flex items-center gap-2 border-l border-gray-200/60 pl-4">
+            <div className="flex items-center gap-2 border-t sm:border-t-0 sm:border-l border-gray-200/60 pt-2 sm:pt-0 sm:pl-4">
               <input
                 type="number" min={1} max={255} value={ttlInput}
                 onChange={e => setTtlInput(e.target.value)}
@@ -382,19 +382,21 @@ function DataUsageSection() {
           className="text-xs text-slds-blue hover:text-slds-blue transition-colors">{limit.gb > 0 ? 'Edit Limit' : 'Set Limit'}</button>
       }>
         {editingLimit && (
-          <div className="mb-3 flex flex-wrap items-end gap-2 rounded-2xl bg-gray-50/50 p-3">
+          <div className="mb-3 flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-2 rounded-2xl bg-gray-50/50 p-3">
             <div>
               <label className="mb-0.5 block text-xs text-gray-500">Data Limit (GB)</label>
               <input type="number" value={limitGb} onChange={e => setLimitGb(e.target.value)} placeholder="e.g. 100"
-                className="w-24 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
+                className="w-full sm:w-24 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
             </div>
             <div>
               <label className="mb-0.5 block text-xs text-gray-500">Reset Day</label>
               <input type="number" min={1} max={28} value={resetDay} onChange={e => setResetDay(e.target.value)}
-                className="w-16 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
+                className="w-full sm:w-16 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none text-sm transition-all" />
             </div>
-            <button onClick={saveLimit} className="bg-slds-blue text-white py-3.5 rounded-2xl font-bold shadow-macos-lg shadow-slds-blue/20 hover:bg-slds-blue active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm py-1.5">Save</button>
-            <button onClick={() => setEditingLimit(false)} className="bg-white border border-gray-200 hover:bg-gray-50 px-3 py-2 rounded-xl font-bold text-gray-500 shadow-sm transition-all active:scale-95 text-sm py-1.5">Cancel</button>
+            <div className="flex gap-2">
+              <button onClick={saveLimit} className="flex-1 sm:flex-none bg-slds-blue text-white py-1.5 rounded-2xl font-bold shadow-macos-lg shadow-slds-blue/20 hover:bg-slds-blue active:scale-[0.98] disabled:opacity-40 transition-all px-4 text-sm">Save</button>
+              <button onClick={() => setEditingLimit(false)} className="flex-1 sm:flex-none bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded-xl font-bold text-gray-500 shadow-sm transition-all active:scale-95 text-sm">Cancel</button>
+            </div>
           </div>
         )}
 
@@ -489,7 +491,7 @@ export default function ModemPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-3xl font-bold text-gray-900">Modem</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Modem</h1>
 
       <div className="bg-gray-50/50 rounded-2xl p-1 flex gap-1 border border-gray-200/50 w-fit">
         {([
@@ -498,7 +500,7 @@ export default function ModemPage() {
           ['ttl', 'TTL'],
         ] as const).map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`rounded-xl px-3 py-1.5 text-sm font-medium transition-all duration-200 ${
+            className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
               tab === id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-600'
             }`}>
             {label}

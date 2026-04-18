@@ -52,7 +52,7 @@ function Tooltip({ text, children }: { text: string; children: React.ReactNode }
       onTouchStart={() => setShow(s => !s)}>
       {children}
       {show && (
-        <span className="absolute bottom-full left-1/2 z-20 mb-2 w-60 -translate-x-1/2 bg-gray-50/80 backdrop-blur-sm rounded-xl px-2 py-1 text-xs text-gray-600 shadow-sm border border-gray-200/60">
+        <span className="absolute bottom-full left-0 sm:left-1/2 z-20 mb-2 w-56 sm:w-60 sm:-translate-x-1/2 bg-gray-50/80 backdrop-blur-sm rounded-xl px-2 py-1 text-xs text-gray-600 shadow-sm border border-gray-200/60">
           {text}
         </span>
       )}
@@ -179,6 +179,7 @@ function CellInfoTable({ carriers, tech }: { carriers: CarrierComponent[]; tech:
   return (
     <div className={isNR ? 'mb-3' : ''}>
       <p className={`mb-2 text-[9px] font-bold uppercase tracking-widest ${isNR ? 'text-purple-600' : 'text-slds-blue'}`}>{isNR ? 'NR 5G' : 'LTE'} Carriers</p>
+      <div className="relative">
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead>
@@ -188,11 +189,11 @@ function CellInfoTable({ carriers, tech }: { carriers: CarrierComponent[]; tech:
               <th className="pb-1.5 pr-3">PCI</th>
               <th className="pb-1.5 pr-3">{isNR ? 'ARFCN' : 'EARFCN'}</th>
               <th className="pb-1.5 pr-3">BW</th>
-              <th className="pb-1.5 pr-3">Freq</th>
+              <th className="hidden sm:table-cell pb-1.5 pr-3">Freq</th>
               <th className="pb-1.5 pr-3">RSRP</th>
               <th className="pb-1.5 pr-3">RSRQ</th>
               <th className="pb-1.5 pr-3">SINR</th>
-              <th className="pb-1.5">RSSI</th>
+              <th className="hidden sm:table-cell pb-1.5">RSSI</th>
             </tr>
           </thead>
           <tbody>
@@ -207,15 +208,17 @@ function CellInfoTable({ carriers, tech }: { carriers: CarrierComponent[]; tech:
                 <td className="py-1.5 pr-3 text-gray-900">{c.pci}</td>
                 <td className="py-1.5 pr-3 text-gray-900">{c.earfcn}</td>
                 <td className="py-1.5 pr-3 text-gray-600">{c.bandwidth}</td>
-                <td className="py-1.5 pr-3 text-gray-600">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
+                <td className="hidden sm:table-cell py-1.5 pr-3 text-gray-600">{c.freq ? `${c.freq.toFixed(1)} MHz` : '\u2014'}</td>
                 <td className={`py-1.5 pr-3 font-medium ${rsrpColor(c.rsrp)}`}>{c.rsrp ?? '\u2014'}</td>
                 <td className={`py-1.5 pr-3 font-medium ${rsrqColor(c.rsrq)}`}>{c.rsrq ?? '\u2014'}</td>
                 <td className={`py-1.5 pr-3 font-medium ${sinrColor(c.sinr)}`}>{c.sinr ?? '\u2014'}</td>
-                <td className="py-1.5 font-medium text-gray-600">{c.rssi ?? '\u2014'}</td>
+                <td className="hidden sm:table-cell py-1.5 font-medium text-gray-600">{c.rssi ?? '\u2014'}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent sm:hidden" />
       </div>
     </div>
   )
@@ -260,7 +263,7 @@ export default function SignalPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Signal Monitor</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Signal Monitor</h1>
         <SignalBars bars={current.signal_bars} />
       </div>
 

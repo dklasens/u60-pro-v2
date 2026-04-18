@@ -8,10 +8,15 @@ export function clearToken() { _token = null; sessionStorage.removeItem('zte_tok
 export function hasToken() { return !!_token }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function req(method: string, path: string, body?: unknown): Promise<any> {
+async function req(
+  method: string,
+  path: string,
+  body?: unknown,
+  extraHeaders?: Record<string, string>,
+): Promise<any> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15_000)
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { ...(extraHeaders ?? {}) }
   if (_token) headers['Authorization'] = `Bearer ${_token}`
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   try {
@@ -30,7 +35,8 @@ async function req(method: string, path: string, body?: unknown): Promise<any> {
 }
 
 const get  = (path: string) => req('GET', path)
-const post = (path: string, body?: unknown) => req('POST', path, body)
+const post = (path: string, body?: unknown, extraHeaders?: Record<string, string>) =>
+  req('POST', path, body, extraHeaders)
 const put  = (path: string, body: unknown) => req('PUT', path, body)
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -83,8 +89,28 @@ export interface Wan6Info { connected: boolean; ipv6?: string; prefix?: string; 
 export interface Client { mac: string; ip?: string; hostname?: string }
 export interface CpuInfo { overall: number; cores: number[] }
 export interface MemInfo { total_kb: number; used_kb: number; free_kb: number; usage_pct: number }
-export interface WifiBand { ssid?: string; enabled: boolean; channel?: number; bandwidth?: string; password?: string; security?: string; hidden: boolean; clients?: number }
-export interface WifiAll { band_2g: WifiBand; band_5g: WifiBand; guest_ssid?: string }
+export interface WifiBand {
+  ssid?: string
+  enabled: boolean
+  channel?: number
+  bandwidth?: string
+  configuredChannel?: string
+  configuredBandwidth?: string
+  actualChannel?: number
+  actualBandwidth?: string
+  password?: string
+  security?: string
+  hidden: boolean
+  clients?: number
+}
+export interface WifiAll {
+  band_2g: WifiBand
+  band_5g: WifiBand
+  guest_ssid?: string
+  persist_on_boot: boolean
+  master_enabled: boolean
+  wifi6_enabled: boolean
+}
 export interface DnsConfig { primary: string; secondary: string; ipv6_primary?: string; ipv6_secondary?: string }
 export interface LanConfig { ip: string; netmask: string; dhcp_start: string; dhcp_end: string; dhcp_lease: string }
 export interface ThermalInfo { cpu_temp_c?: number }
@@ -486,13 +512,42 @@ function mapMemory(d: Record<string, unknown>): MemInfo {
 }
 
 function mapWifi(d: Record<string, unknown>): WifiAll {
+  const parseBoolLike = (value: unknown, fallback: boolean): boolean => {
+    if (typeof value === 'boolean') return value
+    if (typeof value === 'number') return value !== 0
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase()
+      if (['1', 'true', 'on', 'yes', 'enabled'].includes(normalized)) return true
+      if (['0', 'false', 'off', 'no', 'disabled'].includes(normalized)) return false
+    }
+    return fallback
+  }
+  const parseChannelNumber = (value: unknown): number | undefined => {
+    const raw = String(value ?? '')
+    const n = parseInt(raw, 10)
+    return Number.isFinite(n) ? n : undefined
+  }
+  const persistRaw = d.persist_on_boot
+  const persistOnBoot = parseBoolLike(persistRaw, true)
+  const masterEnabled = parseBoolLike(d.wifi_onoff, true)
+  const wifi6Enabled = parseBoolLike(d.wifi6_switch, false)
+  const configuredChannel2g = String(d.channel_2g ?? 'auto') || 'auto'
+  const configuredChannel5g = String(d.channel_5g ?? 'auto') || 'auto'
+  const actualChannel2g = parseChannelNumber(d.actual_channel_2g)
+  const actualChannel5g = parseChannelNumber(d.actual_channel_5g)
+  const actualBw2g = d.actual_bw_2g as string | undefined
+  const actualBw5g = d.actual_bw_5g as string | undefined
   return {
     band_2g: {
       ssid: d.ssid_2g as string | undefined,
       enabled: d.radio2_disabled !== '1',
-      channel: parseInt(d.actual_channel_2g as string) || undefined,
-      bandwidth: d.actual_bw_2g as string | undefined,
-      password: d.has_key_2g ? '••••••••' : undefined,
+      channel: actualChannel2g,
+      bandwidth: actualBw2g,
+      configuredChannel: configuredChannel2g === '0' ? 'auto' : configuredChannel2g,
+      configuredBandwidth: d.htmode_2g as string | undefined,
+      actualChannel: actualChannel2g,
+      actualBandwidth: actualBw2g,
+      password: (d.key_2g as string) || (d.has_key_2g ? '••••••••' : undefined),
       security: d.encryption_2g as string | undefined,
       hidden: d.hidden_2g === '1',
       clients: d.clients_2g as number | undefined,
@@ -500,14 +555,21 @@ function mapWifi(d: Record<string, unknown>): WifiAll {
     band_5g: {
       ssid: d.ssid_5g as string | undefined,
       enabled: d.radio5_disabled !== '1',
-      channel: parseInt(d.actual_channel_5g as string) || undefined,
-      bandwidth: d.actual_bw_5g as string | undefined,
-      password: d.has_key_5g ? '••••••••' : undefined,
+      channel: actualChannel5g,
+      bandwidth: actualBw5g,
+      configuredChannel: configuredChannel5g === '0' ? 'auto' : configuredChannel5g,
+      configuredBandwidth: d.htmode_5g as string | undefined,
+      actualChannel: actualChannel5g,
+      actualBandwidth: actualBw5g,
+      password: (d.key_5g as string) || (d.has_key_5g ? '••••••••' : undefined),
       security: d.encryption_5g as string | undefined,
       hidden: d.hidden_5g === '1',
       clients: d.clients_5g as number | undefined,
     },
     guest_ssid: d.guest_ssid as string | undefined,
+    persist_on_boot: persistOnBoot,
+    master_enabled: masterEnabled,
+    wifi6_enabled: wifi6Enabled,
   }
 }
 
@@ -570,7 +632,7 @@ export const api = {
   battery: () => get('/api/battery').then(mapBattery),
   cpu:     () => get('/api/cpu').then(mapCpu),
   memory:  () => get('/api/memory').then(mapMemory),
-  reboot:  () => post('/api/device/reboot'),
+  reboot:  () => post('/api/device/reboot', undefined, { 'X-Confirm': 'true' }),
 
   // Network
   signal:   () => get('/api/network/signal').then(mapSignal),

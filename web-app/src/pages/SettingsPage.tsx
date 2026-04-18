@@ -68,7 +68,7 @@ export default function SettingsPage({ onLogout }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Settings</h1>
         <button onClick={onLogout} className="px-4 py-2 text-sm bg-white border border-gray-200 hover:bg-gray-50 rounded-xl font-bold text-gray-500 shadow-sm transition-all active:scale-95">
           Sign out
         </button>
@@ -113,7 +113,12 @@ export default function SettingsPage({ onLogout }: Props) {
             <div className="space-y-3">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-500">Battery</span>
-                <span className="text-gray-900">{charge.capacity}% — {charge.battery_status}</span>
+                <div className="flex items-center gap-2">
+                  {charge.charging_stopped && charge.battery_status !== 'Discharging' && (
+                    <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-700 rounded-md">Bypass Mode Active</span>
+                  )}
+                  <span className="text-gray-900">{charge.capacity}% — {charge.battery_status}</span>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button onClick={toggleCharging}
@@ -139,7 +144,7 @@ export default function SettingsPage({ onLogout }: Props) {
                       )}
                     </select>
                     <button onClick={() => setChargeLimit(false)}
-                      className="px-2 py-1 text-xs bg-white border border-gray-200 hover:bg-gray-50 rounded-xl font-bold text-gray-500 hover:text-gray-900 shadow-sm transition-all active:scale-95">
+                      className="px-3 py-2 text-xs bg-white border border-gray-200 hover:bg-gray-50 rounded-xl font-bold text-gray-500 hover:text-gray-900 shadow-sm transition-all active:scale-95">
                       Disable Limit
                     </button>
                   </div>
@@ -217,6 +222,7 @@ export default function SettingsPage({ onLogout }: Props) {
 
       {top.length > 0 && (
         <Card title="Top Processes">
+          <div className="relative">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -238,6 +244,8 @@ export default function SettingsPage({ onLogout }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent sm:hidden" />
           </div>
         </Card>
       )}

@@ -46,11 +46,11 @@ function formatUptime(secs?: number) {
   return [d && `${d}d`, (d || h) && `${h}h`, `${m}m`].filter(Boolean).join(' ')
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, wrap }: { label: string; value: string; wrap?: boolean }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-gray-600">{label}</span>
-      <span className="truncate text-right font-medium text-gray-900">{value}</span>
+      <span className="shrink-0 text-gray-600">{label}</span>
+      <span className={`text-right font-medium text-gray-900 ${wrap ? 'break-all' : 'truncate'}`}>{value}</span>
     </div>
   )
 }
@@ -93,7 +93,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Dashboard</h1>
         {error && <span className="text-xs text-red-500">{error}</span>}
       </div>
 
@@ -200,13 +200,13 @@ export default function DashboardPage() {
           <div className="space-y-2 text-sm">
             <Row label="IPv4" value={wan?.ipv4 ?? '\u2014'} />
             <Row label="Gateway" value={wan?.gateway ?? '\u2014'} />
-            <Row label="IPv6" value={wan6?.ipv6 ?? '\u2014'} />
-            {wan6?.prefix && <Row label="IPv6 Prefix" value={wan6.prefix} />}
+            <Row label="IPv6" value={wan6?.ipv6 ?? '\u2014'} wrap />
+            {wan6?.prefix && <Row label="IPv6 Prefix" value={wan6.prefix} wrap />}
             {wan?.dns && wan.dns.length > 0 && (
               <Row label="DNS (v4)" value={wan.dns.filter(d => !d.includes(':')).join(', ') || '\u2014'} />
             )}
             {wan6?.dns && wan6.dns.length > 0 && (
-              <Row label="DNS (v6)" value={wan6.dns.join(', ')} />
+              <Row label="DNS (v6)" value={wan6.dns.join(', ')} wrap />
             )}
           </div>
         </Card>

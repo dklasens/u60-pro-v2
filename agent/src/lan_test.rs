@@ -32,13 +32,7 @@ pub fn download(request: Request, size: usize, extra_headers: Vec<Header>) {
     let reader = ZeroReader { remaining: size };
     let mut headers = vec![Header::from_bytes("Content-Type", "application/octet-stream").unwrap()];
     headers.extend(extra_headers);
-    let response = Response::new(
-        StatusCode(200),
-        headers,
-        reader,
-        Some(size),
-        None,
-    );
+    let response = Response::new(StatusCode(200), headers, reader, Some(size), None);
     let _ = request.respond(response);
 }
 

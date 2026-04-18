@@ -5,35 +5,39 @@ use serde_json::{json, Value};
 use crate::handlers::AppState;
 use crate::ubus;
 
+const WIFI_CONFIG_PATH: &str = "/data/local/tmp/wifi_config.json";
+const PERSIST_ON_BOOT_KEY: &str = "persist_on_boot";
+
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
 pub fn enforce_wifi_state_on_boot() {
-    if let Ok(s) = std::fs::read_to_string("/data/local/tmp/wifi_config.json") {
-        if let Ok(persisted) = serde_json::from_str::<Value>(&s) {
-            let mut changed = false;
-            
-            if let Some(r2) = persisted["radio2_disabled"].as_str() {
-                if ubus::uci_get("wireless.wifi0.disabled").unwrap_or_default() != r2 {
-                    let _ = ubus::uci_set_no_commit("wireless.wifi0.disabled", r2);
-                    changed = true;
-                }
-            }
-            if let Some(r5) = persisted["radio5_disabled"].as_str() {
-                if ubus::uci_get("wireless.wifi1.disabled").unwrap_or_default() != r5 {
-                    let _ = ubus::uci_set_no_commit("wireless.wifi1.disabled", r5);
-                    changed = true;
-                }
-            }
-            
-            if changed {
-                let _ = ubus::uci_commit("wireless");
-                let _ = Command::new("sh")
-                    .args(["-c", "ubus call zwrt_wlan reload >/dev/null 2>&1 &"])
-                    .output();
-            }
+    let persisted = read_persisted_wifi_state();
+    if !persist_on_boot_enabled(&persisted) {
+        return;
+    }
+
+    let mut changed = false;
+
+    if let Some(r2) = persisted["radio2_disabled"].as_str() {
+        if ubus::uci_get("wireless.wifi0.disabled").unwrap_or_default() != r2 {
+            let _ = ubus::uci_set_no_commit("wireless.wifi0.disabled", r2);
+            changed = true;
         }
+    }
+    if let Some(r5) = persisted["radio5_disabled"].as_str() {
+        if ubus::uci_get("wireless.wifi1.disabled").unwrap_or_default() != r5 {
+            let _ = ubus::uci_set_no_commit("wireless.wifi1.disabled", r5);
+            changed = true;
+        }
+    }
+
+    if changed {
+        let _ = ubus::uci_commit("wireless");
+        let _ = Command::new("sh")
+            .args(["-c", "ubus call zwrt_wlan reload >/dev/null 2>&1 &"])
+            .output();
     }
 }
 
@@ -110,6 +114,51 @@ fn sanitize_uci_value(v: &str) -> String {
         .collect()
 }
 
+fn parse_bool_str(v: &str) -> Option<bool> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" | "enabled" => Some(true),
+        "0" | "false" | "no" | "off" | "disabled" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_bool_value(value: &Value) -> Option<bool> {
+    match value {
+        Value::Bool(b) => Some(*b),
+        Value::Number(n) => n.as_i64().map(|v| v != 0),
+        Value::String(s) => parse_bool_str(s),
+        _ => None,
+    }
+}
+
+fn read_persisted_wifi_state() -> Value {
+    std::fs::read_to_string(WIFI_CONFIG_PATH)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or_else(|| json!({}))
+}
+
+fn persist_on_boot_enabled(persisted: &Value) -> bool {
+    persisted
+        .get(PERSIST_ON_BOOT_KEY)
+        .and_then(parse_bool_value)
+        .unwrap_or(true)
+}
+
+fn sanitize_wifi_key_value(v: &str) -> String {
+    // Keep Wi-Fi passphrases intact except for control chars that can corrupt UCI entries.
+    v.chars()
+        .filter(|c| !matches!(c, '\u{0000}' | '\n' | '\r'))
+        .collect()
+}
+
+fn sanitize_wifi_input_value(key: &str, v: &str) -> String {
+    match key {
+        "key_2g" | "key_5g" | "guest_key" => sanitize_wifi_key_value(v),
+        _ => sanitize_uci_value(v),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/wifi/status
 // ---------------------------------------------------------------------------
@@ -134,6 +183,11 @@ pub fn wifi_status(_state: &AppState) -> (u16, Value) {
     }
     result.insert("wifi_onoff".into(), json!(wifi_onoff));
     result.insert("wifi6_switch".into(), json!(wifi6_switch));
+    let persisted = read_persisted_wifi_state();
+    result.insert(
+        PERSIST_ON_BOOT_KEY.into(),
+        json!(persist_on_boot_enabled(&persisted)),
+    );
 
     // Radio config
     result.insert(
@@ -170,6 +224,8 @@ pub fn wifi_status(_state: &AppState) -> (u16, Value) {
     // Interface config
     result.insert("ssid_2g".into(), json!(uci_get_wireless("main_2g.ssid")));
     result.insert("ssid_5g".into(), json!(uci_get_wireless("main_5g.ssid")));
+    result.insert("key_2g".into(), json!(uci_get_wireless("main_2g.key")));
+    result.insert("key_5g".into(), json!(uci_get_wireless("main_5g.key")));
     result.insert(
         "has_key_2g".into(),
         json!(!uci_get_wireless("main_2g.key").is_empty()),
@@ -272,22 +328,48 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let mut txpower_2g_val: Option<u32> = None;
     let mut txpower_5g_val: Option<u32> = None;
 
-    let mut persisted_state = std::fs::read_to_string("/data/local/tmp/wifi_config.json")
-        .ok()
-        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .unwrap_or_else(|| json!({}));
+    let mut persisted_state = read_persisted_wifi_state();
+    let mut persisted_state_changed = false;
 
     for (key, value) in obj {
+        if key == PERSIST_ON_BOOT_KEY {
+            let enabled = match parse_bool_value(value) {
+                Some(v) => v,
+                None => {
+                    return (
+                        400,
+                        json!({"ok": false, "error": "invalid persist_on_boot value"}),
+                    )
+                }
+            };
+            persisted_state[PERSIST_ON_BOOT_KEY] = json!(if enabled { "1" } else { "0" });
+            persisted_state_changed = true;
+            if enabled {
+                // Refresh radio snapshot when re-enabling persistence.
+                persisted_state["radio2_disabled"] =
+                    json!(ubus::uci_get("wireless.wifi0.disabled").unwrap_or_default());
+                persisted_state["radio5_disabled"] =
+                    json!(ubus::uci_get("wireless.wifi1.disabled").unwrap_or_default());
+            }
+            continue;
+        }
+
         let val_str = match value {
             Value::String(s) => s.clone(),
             Value::Number(n) => n.to_string(),
             Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
             _ => continue,
         };
-        let val_str = sanitize_uci_value(&val_str);
+        let val_str = sanitize_wifi_input_value(key, &val_str);
+
+        // Prevent overwriting with masked placeholder
+        if (key == "key_2g" || key == "key_5g") && val_str == "••••••••" {
+            continue;
+        }
 
         if key == "radio2_disabled" || key == "radio5_disabled" {
             persisted_state[key.as_str()] = json!(val_str);
+            persisted_state_changed = true;
         }
 
         // Check wireless UCI map
@@ -334,14 +416,14 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
         }
     }
 
-    if wireless_changed || mbb_changed {
+    if wireless_changed || mbb_changed || persisted_state_changed {
         let _ = std::fs::write(
-            "/data/local/tmp/wifi_config.json",
+            WIFI_CONFIG_PATH,
             serde_json::to_string(&persisted_state).unwrap_or_default(),
         );
     }
 
-    if !wireless_changed && !mbb_changed {
+    if !wireless_changed && !mbb_changed && !persisted_state_changed {
         return (
             200,
             json!({"ok": true, "data": {"status": "ok", "note": "no changes"}}),
@@ -496,7 +578,7 @@ pub fn guest_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
             Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
             _ => continue,
         };
-        let val_str = sanitize_uci_value(&val_str);
+        let val_str = sanitize_wifi_input_value(key, &val_str);
 
         if let Some(&(_, paths)) = guest_map.iter().find(|&&(k, _)| k == key) {
             for &path in paths {
@@ -525,4 +607,53 @@ pub fn guest_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
         .output();
 
     (200, json!({"ok": true, "data": {"status": "ok"}}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{persist_on_boot_enabled, sanitize_wifi_input_value};
+    use serde_json::json;
+
+    #[test]
+    fn wifi_keys_keep_special_characters() {
+        let input = r#"Pass$word'";\|<>&`!"#;
+        assert_eq!(sanitize_wifi_input_value("key_5g", input), input);
+        assert_eq!(sanitize_wifi_input_value("guest_key", input), input);
+    }
+
+    #[test]
+    fn wifi_keys_strip_control_characters_only() {
+        let input = "line1\nline2\rline3\u{0000}";
+        assert_eq!(
+            sanitize_wifi_input_value("key_2g", input),
+            "line1line2line3"
+        );
+    }
+
+    #[test]
+    fn non_key_values_remain_sanitized() {
+        let input = r#"wifi$';`"\name|<&"#;
+        assert_eq!(sanitize_wifi_input_value("ssid_5g", input), "wifiname");
+    }
+
+    #[test]
+    fn persist_on_boot_defaults_to_true_when_missing() {
+        assert!(persist_on_boot_enabled(&json!({})));
+    }
+
+    #[test]
+    fn persist_on_boot_parses_common_disabled_values() {
+        assert!(!persist_on_boot_enabled(&json!({"persist_on_boot": false})));
+        assert!(!persist_on_boot_enabled(&json!({"persist_on_boot": 0})));
+        assert!(!persist_on_boot_enabled(&json!({"persist_on_boot": "off"})));
+        assert!(!persist_on_boot_enabled(&json!({"persist_on_boot": "0"})));
+    }
+
+    #[test]
+    fn persist_on_boot_parses_common_enabled_values() {
+        assert!(persist_on_boot_enabled(&json!({"persist_on_boot": true})));
+        assert!(persist_on_boot_enabled(&json!({"persist_on_boot": 1})));
+        assert!(persist_on_boot_enabled(&json!({"persist_on_boot": "on"})));
+        assert!(persist_on_boot_enabled(&json!({"persist_on_boot": "1"})));
+    }
 }
