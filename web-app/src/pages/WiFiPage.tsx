@@ -307,8 +307,8 @@ export default function WiFiPage() {
     try {
       await api.wifiSet({ persist_on_boot: next ? '1' : '0' })
       setPersistMsg(next
-        ? 'Custom Wi-Fi state will persist after reboot'
-        : 'ZTE default Wi-Fi behavior will be used after reboot')
+        ? 'Current Wi-Fi on/off state will be restored after reboot'
+        : 'Stock firmware will control Wi-Fi on/off state after reboot')
       await fetchWifi()
     } catch (e) {
       setPersistErr(true)
@@ -384,24 +384,30 @@ export default function WiFiPage() {
             <div>
               <p className="text-sm font-medium text-gray-900">Master Switch</p>
               <p className="text-xs text-gray-500">
-                {wifi.master_enabled
+                {!wifi.master_supported
+                  ? 'This firmware does not expose a reliable global Wi-Fi toggle.'
+                  : wifi.master_enabled
                   ? 'ON: radios follow your per-band settings'
                   : 'OFF: all Wi-Fi radios are globally disabled'}
               </p>
             </div>
             <button
               onClick={toggleMasterWifi}
-              disabled={masterSaving}
+              disabled={masterSaving || !wifi.master_supported}
               className={`rounded-xl px-3 py-1.5 text-xs font-bold transition-all duration-150 ${
-                wifi.master_enabled
+                !wifi.master_supported
+                  ? 'bg-gray-100 text-gray-400 border border-gray-200'
+                  : wifi.master_enabled
                   ? 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'
                   : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
               } disabled:opacity-40`}
             >
-              {masterSaving ? 'Saving\u2026' : (wifi.master_enabled ? 'On' : 'Off')}
+              {masterSaving ? 'Saving\u2026' : (!wifi.master_supported ? 'Unsupported' : (wifi.master_enabled ? 'On' : 'Off'))}
             </button>
           </div>
-          <p className="text-xs text-gray-500">Wi-Fi 6: {wifi.wifi6_enabled ? 'Enabled' : 'Disabled'}</p>
+          {wifi.wifi6_supported && (
+            <p className="text-xs text-gray-500">Wi-Fi 6: {wifi.wifi6_enabled ? 'Enabled' : 'Disabled'}</p>
+          )}
           {masterMsg && (
             <p className={`text-xs ${masterErr ? 'text-red-500' : 'text-green-500'}`}>
               {masterMsg}
@@ -417,8 +423,8 @@ export default function WiFiPage() {
               <p className="text-sm font-medium text-gray-900">Persist Wi-Fi state after reboot</p>
               <p className="text-xs text-gray-500">
                 {wifi.persist_on_boot
-                  ? 'ON: custom app settings are re-applied after restart'
-                  : 'OFF: modem reverts to stock ZTE behavior after restart'}
+                  ? 'ON: the current master switch and per-band on/off state are restored after restart'
+                  : 'OFF: stock firmware decides the Wi-Fi on/off state during boot'}
               </p>
             </div>
             <button
@@ -433,6 +439,9 @@ export default function WiFiPage() {
               {persistSaving ? 'Saving\u2026' : (wifi.persist_on_boot ? 'On' : 'Off')}
             </button>
           </div>
+          <p className="text-xs text-gray-500">
+            SSID, password, channel, and bandwidth already persist normally. This toggle only affects Wi-Fi enable and disable state after boot.
+          </p>
           {persistMsg && (
             <p className={`text-xs ${persistErr ? 'text-red-500' : 'text-green-500'}`}>
               {persistMsg}

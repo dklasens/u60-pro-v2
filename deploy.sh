@@ -33,6 +33,7 @@ cat "$BINARY" | $SSH "cat > $REMOTE_BIN && chmod +x $REMOTE_BIN"
 echo "Updating password..."
 ESCAPED_PW=$(printf '%s\n' "$PASSWORD" | sed 's/[&/\]/\\&/g')
 $SSH "sed -i \"s|^export ZTE_AGENT_PASSWORD=.*|export ZTE_AGENT_PASSWORD='${ESCAPED_PW}'|\" $STARTUP_SCRIPT"
+$SSH "chmod 700 $STARTUP_SCRIPT"
 
 # 5. Restart
 echo "Restarting agent..."

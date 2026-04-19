@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { login, setToken, clearToken, hasToken } from './api'
+import { AUTH_EXPIRED_EVENT, login, setToken, clearToken, hasToken } from './api'
 import Sidebar from './components/Sidebar'
 import AlertBanner from './components/AlertBanner'
 import DashboardPage from './pages/DashboardPage'
@@ -29,6 +29,17 @@ export default function App() {
     return () => { document.body.style.overflow = '' }
   }, [sidebarOpen])
 
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setAuthed(false)
+      setPw('')
+      setLoginErr('Session expired. Sign in again.')
+    }
+
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired)
+  }, [])
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
@@ -37,8 +48,9 @@ export default function App() {
       const { token } = await login(pw)
       setToken(token)
       setAuthed(true)
-    } catch {
-      setLoginErr('Invalid password')
+      setPw('')
+    } catch (error) {
+      setLoginErr(error instanceof Error ? error.message : 'Sign in failed')
     } finally {
       setLoading(false)
     }
@@ -65,18 +77,15 @@ export default function App() {
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">PIN</label>
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">Agent Password</label>
               <input
                 type="password"
-                inputMode="numeric"
-                pattern="[0-9]*"
                 value={pw}
-                onChange={e => setPw(e.target.value.replace(/\D/g, ''))}
-                className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-center text-2xl tracking-[0.5em] text-gray-900 placeholder-gray-400 focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none transition-all"
-                placeholder="------"
-                maxLength={6}
+                onChange={e => setPw(e.target.value)}
+                className="w-full px-3.5 py-3 bg-gray-50 border border-gray-200 rounded-xl text-base text-gray-900 placeholder-gray-400 focus:ring-0 focus:shadow-macos-focus focus:border-slds-blue outline-none transition-all"
+                placeholder="Enter your agent password"
                 autoFocus
-                autoComplete="off"
+                autoComplete="current-password"
               />
             </div>
             {loginErr && <p className="text-xs text-red-500">{loginErr}</p>}

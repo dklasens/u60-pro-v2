@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { api, type ThermalAll, type BatteryDetail } from '../api'
+import { api, type ThermalAll, type BatteryDetail, type BatteryBspInfo } from '../api'
 import Card from '../components/Card'
 
 function tempColor(c?: number) {
@@ -39,11 +39,13 @@ function ThermalBar({ label, value, max = 100 }: { label: string; value?: number
 export default function MetricsPage() {
   const [thermal, setThermal] = useState<ThermalAll | null>(null)
   const [battery, setBattery] = useState<BatteryDetail | null>(null)
+  const [batteryInfo, setBatteryInfo] = useState<BatteryBspInfo | null>(null)
 
   const fetchAll = useCallback(async () => {
-    const [t, b] = await Promise.allSettled([api.thermalAll(), api.batteryDetail()])
+    const [t, b, bi] = await Promise.allSettled([api.thermalAll(), api.batteryDetail(), api.batteryInfoUbus()])
     if (t.status === 'fulfilled') setThermal(t.value)
     if (b.status === 'fulfilled') setBattery(b.value)
+    if (bi.status === 'fulfilled') setBatteryInfo(bi.value)
   }, [])
 
   useEffect(() => {
@@ -58,6 +60,17 @@ export default function MetricsPage() {
     return h > 0 ? `${h}h ${m}m` : `${m}m`
   }
 
+  function formatMah(value?: number) {
+    if (value == null || value < 0) return '—'
+    return `${Math.round(value).toLocaleString()} mAh`
+  }
+
+  function formatSignedMv(value?: number) {
+    if (value == null || Number.isNaN(value)) return '—'
+    const rounded = Math.round(value)
+    return `${rounded > 0 ? '+' : ''}${rounded} mV`
+  }
+
   const cpuAvg = thermal && thermal.cpu_0 != null
     ? [thermal.cpu_0, thermal.cpu_1, thermal.cpu_2, thermal.cpu_3].filter((v): v is number => v != null).reduce((a, b) => a + b, 0)
       / [thermal.cpu_0, thermal.cpu_1, thermal.cpu_2, thermal.cpu_3].filter(v => v != null).length
@@ -65,6 +78,16 @@ export default function MetricsPage() {
 
   const batteryHealth = battery && battery.charge_full_design_mah > 0
     ? Math.round((battery.charge_full_mah / battery.charge_full_design_mah) * 100)
+    : undefined
+  const chargeRemainingMah = battery
+    ? Math.max(battery.charge_full_mah - battery.charge_counter_mah, 0)
+    : undefined
+  const voltageHeadroomMv = battery
+    ? Math.max(battery.voltage_max_mv - battery.voltage_mv, 0)
+    : undefined
+  const loadedVsOcvMv = battery ? battery.voltage_mv - battery.voltage_ocv_mv : undefined
+  const cRate = battery && battery.charge_full_mah > 0
+    ? Math.abs(battery.current_ma) / battery.charge_full_mah
     : undefined
 
   return (
@@ -146,6 +169,43 @@ export default function MetricsPage() {
                 <div>
                   <p className="text-xs text-gray-500">{battery.status === 'Charging' ? 'Time to Full' : 'Time to Empty'}</p>
                   <p className="text-gray-900">{formatTime(battery.status === 'Charging' ? battery.time_to_full_secs : battery.time_to_empty_secs)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t border-gray-200/60 pt-3 text-sm">
+                <div>
+                  <p className="text-xs text-gray-500">Charge Counter</p>
+                  <p className="text-gray-900">{formatMah(battery.charge_counter_mah)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">To Full</p>
+                  <p className="text-gray-900">{formatMah(chargeRemainingMah)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Voltage Headroom</p>
+                  <p className="text-gray-900">{formatSignedMv(voltageHeadroomMv)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Loaded vs OCV</p>
+                  <p className="text-gray-900">{formatSignedMv(loadedVsOcvMv)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">C-Rate</p>
+                  <p className="text-gray-900">{cRate != null ? `${cRate.toFixed(2)}C` : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Fuel Gauge</p>
+                  <p className="text-gray-900">{batteryInfo ? (batteryInfo.using_hw_fg_chip ? 'Hardware' : 'Software') : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Battery Online</p>
+                  <p className="text-gray-900">{batteryInfo ? (batteryInfo.online ? 'Yes' : 'No') : '—'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Low Power Flag</p>
+                  <p className={batteryInfo?.low_power ? 'text-amber-500' : 'text-gray-900'}>
+                    {batteryInfo ? (batteryInfo.low_power ? 'Active' : 'Clear') : '—'}
+                  </p>
                 </div>
               </div>
             </div>

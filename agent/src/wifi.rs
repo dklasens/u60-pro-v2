@@ -7,6 +7,9 @@ use crate::ubus;
 
 const WIFI_CONFIG_PATH: &str = "/data/local/tmp/wifi_config.json";
 const PERSIST_ON_BOOT_KEY: &str = "persist_on_boot";
+const WIFI_ONOFF_KEY: &str = "wifi_onoff";
+const WIFI_ONOFF_BY_USER_KEY: &str = "wifi_onoff_by_user";
+const WIFI6_SWITCH_KEY: &str = "wifi6_switch";
 
 // ---------------------------------------------------------------------------
 // Boot
@@ -19,6 +22,20 @@ pub fn enforce_wifi_state_on_boot() {
     }
 
     let mut changed = false;
+
+    if let Some(global) = persisted[WIFI_ONOFF_KEY].as_str() {
+        if !global.is_empty() {
+            let current_global = current_wifi_onoff_value();
+            let current_user = uci_get_feature(WIFI_ONOFF_BY_USER_KEY);
+            if current_global != global || (!current_user.is_empty() && current_user != global) {
+                let _ = ubus::uci_set_no_commit("wireless.zte_mbb.wifi_onoff", global);
+                if !current_user.is_empty() {
+                    let _ = ubus::uci_set_no_commit("wireless.zte_mbb.wifi_onoff_by_user", global);
+                }
+                changed = true;
+            }
+        }
+    }
 
     if let Some(r2) = persisted["radio2_disabled"].as_str() {
         if ubus::uci_get("wireless.wifi0.disabled").unwrap_or_default() != r2 {
@@ -49,8 +66,25 @@ fn uci_get_wireless(key: &str) -> String {
     ubus::uci_get(&format!("wireless.{key}")).unwrap_or_default()
 }
 
-fn uci_get_mbb(key: &str) -> String {
-    ubus::uci_get(&format!("zte_mbb.{key}")).unwrap_or_default()
+fn uci_get_feature(key: &str) -> String {
+    uci_get_wireless(&format!("zte_mbb.{key}"))
+}
+
+fn report_value(report: Option<&Value>, key: &str) -> String {
+    report
+        .and_then(|v| v.get(key))
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn current_wifi_onoff_value() -> String {
+    let value = uci_get_feature(WIFI_ONOFF_KEY);
+    if !value.is_empty() {
+        return value;
+    }
+    let report = ubus::call("zwrt_wlan", "report", Some("{}")).ok();
+    report_value(report.as_ref(), WIFI_ONOFF_KEY)
 }
 
 fn iw_info(iface: &str) -> (String, String) {
@@ -165,24 +199,29 @@ fn sanitize_wifi_input_value(key: &str, v: &str) -> String {
 
 pub fn wifi_status(_state: &AppState) -> (u16, Value) {
     let mut result = serde_json::Map::new();
+    let report = ubus::call("zwrt_wlan", "report", Some("{}")).ok();
 
-    // Global switches from zte_mbb
-    let mut wifi_onoff = uci_get_mbb("wifi.wifi_onoff");
-    let mut wifi6_switch = uci_get_mbb("wifi.wifi6_switch");
-
-    // Fallback: if mbb UCI keys are missing, read from zwrt_wlan report
-    if wifi_onoff.is_empty() || wifi6_switch.is_empty() {
-        if let Ok(report) = ubus::call("zwrt_wlan", "report", Some("{}")) {
-            if wifi_onoff.is_empty() {
-                wifi_onoff = report["wifi_onoff"].as_str().unwrap_or("1").to_string();
-            }
-            if wifi6_switch.is_empty() {
-                wifi6_switch = report["wifi6_switch"].as_str().unwrap_or("0").to_string();
-            }
-        }
+    // Global switches from wireless feature config, with report fallback when exposed there.
+    let mut wifi_onoff = uci_get_feature(WIFI_ONOFF_KEY);
+    if wifi_onoff.is_empty() {
+        wifi_onoff = report_value(report.as_ref(), WIFI_ONOFF_KEY);
     }
-    result.insert("wifi_onoff".into(), json!(wifi_onoff));
-    result.insert("wifi6_switch".into(), json!(wifi6_switch));
+    let wifi_onoff_supported = !wifi_onoff.is_empty();
+    if wifi_onoff_supported {
+        result.insert("wifi_onoff".into(), json!(wifi_onoff));
+    }
+    result.insert("wifi_onoff_supported".into(), json!(wifi_onoff_supported));
+
+    let mut wifi6_switch = uci_get_feature(WIFI6_SWITCH_KEY);
+    if wifi6_switch.is_empty() {
+        wifi6_switch = report_value(report.as_ref(), WIFI6_SWITCH_KEY);
+    }
+    let wifi6_supported = !wifi6_switch.is_empty();
+    if wifi6_supported {
+        result.insert("wifi6_switch".into(), json!(wifi6_switch));
+    }
+    result.insert("wifi6_supported".into(), json!(wifi6_supported));
+
     let persisted = read_persisted_wifi_state();
     result.insert(
         PERSIST_ON_BOOT_KEY.into(),
@@ -315,15 +354,9 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
         ("radio2_disabled", "wireless.wifi0.disabled"),
         ("radio5_disabled", "wireless.wifi1.disabled"),
     ];
-    let mbb_map: &[(&str, &str)] = &[
-        ("wifi_onoff", "zte_mbb.wifi.wifi_onoff"),
-        ("wifi6_switch", "zte_mbb.wifi.wifi6_switch"),
-    ];
-
     let txpower_keys: &[&str] = &["txpower_2g", "txpower_5g"];
 
     let mut wireless_changed = false;
-    let mut mbb_changed = false;
     let mut only_txpower = true;
     let mut txpower_2g_val: Option<u32> = None;
     let mut txpower_5g_val: Option<u32> = None;
@@ -345,7 +378,11 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
             persisted_state[PERSIST_ON_BOOT_KEY] = json!(if enabled { "1" } else { "0" });
             persisted_state_changed = true;
             if enabled {
-                // Refresh radio snapshot when re-enabling persistence.
+                // Refresh the on/off snapshot when re-enabling persistence.
+                let wifi_onoff = current_wifi_onoff_value();
+                if !wifi_onoff.is_empty() {
+                    persisted_state[WIFI_ONOFF_KEY] = json!(wifi_onoff);
+                }
                 persisted_state["radio2_disabled"] =
                     json!(ubus::uci_get("wireless.wifi0.disabled").unwrap_or_default());
                 persisted_state["radio5_disabled"] =
@@ -372,6 +409,52 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
             persisted_state_changed = true;
         }
 
+        if key == WIFI_ONOFF_KEY {
+            let mut changed_any = false;
+            let current = ubus::uci_get("wireless.zte_mbb.wifi_onoff").unwrap_or_default();
+            if current != val_str {
+                if let Err(e) = ubus::uci_set_no_commit("wireless.zte_mbb.wifi_onoff", &val_str) {
+                    return (500, json!({"ok": false, "error": e}));
+                }
+                changed_any = true;
+            }
+
+            let current_user = ubus::uci_get("wireless.zte_mbb.wifi_onoff_by_user").unwrap_or_default();
+            if !current_user.is_empty() && current_user != val_str {
+                if let Err(e) =
+                    ubus::uci_set_no_commit("wireless.zte_mbb.wifi_onoff_by_user", &val_str)
+                {
+                    return (500, json!({"ok": false, "error": e}));
+                }
+                changed_any = true;
+            }
+
+            persisted_state[WIFI_ONOFF_KEY] = json!(val_str);
+            persisted_state_changed = true;
+
+            if changed_any {
+                wireless_changed = true;
+                only_txpower = false;
+            }
+            continue;
+        }
+
+        if key == WIFI6_SWITCH_KEY {
+            let current = ubus::uci_get("wireless.zte_mbb.wifi6_switch").unwrap_or_default();
+            if current.is_empty() {
+                continue;
+            }
+            if current != val_str {
+                if let Err(e) = ubus::uci_set_no_commit("wireless.zte_mbb.wifi6_switch", &val_str)
+                {
+                    return (500, json!({"ok": false, "error": e}));
+                }
+                wireless_changed = true;
+                only_txpower = false;
+            }
+            continue;
+        }
+
         // Check wireless UCI map
         if let Some(&(_, path)) = uci_map.iter().find(|&&(k, _)| k == key) {
             let current = ubus::uci_get(path).unwrap_or_default();
@@ -391,17 +474,6 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
             continue;
         }
 
-        // Check mbb map
-        if let Some(&(_, path)) = mbb_map.iter().find(|&&(k, _)| k == key) {
-            let current = ubus::uci_get(path).unwrap_or_default();
-            if current != val_str {
-                // mbb keys are firmware-dependent; skip silently if missing
-                if ubus::uci_set_no_commit(path, &val_str).is_ok() {
-                    mbb_changed = true;
-                    only_txpower = false;
-                }
-            }
-        }
     }
 
     // Commit batched changes
@@ -410,20 +482,15 @@ pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
             return (500, json!({"ok": false, "error": e}));
         }
     }
-    if mbb_changed {
-        if let Err(e) = ubus::uci_commit("zte_mbb") {
-            return (500, json!({"ok": false, "error": e}));
-        }
-    }
 
-    if wireless_changed || mbb_changed || persisted_state_changed {
+    if wireless_changed || persisted_state_changed {
         let _ = std::fs::write(
             WIFI_CONFIG_PATH,
             serde_json::to_string(&persisted_state).unwrap_or_default(),
         );
     }
 
-    if !wireless_changed && !mbb_changed && !persisted_state_changed {
+    if !wireless_changed && !persisted_state_changed {
         return (
             200,
             json!({"ok": true, "data": {"status": "ok", "note": "no changes"}}),

@@ -247,8 +247,6 @@ pub fn route(
         (&Method::Get, "/api/device/system") => device_ext::device_system(state),
         (&Method::Post, "/api/device/reboot") => device_ext::device_reboot(state),
         (&Method::Post, "/api/device/factory-reset") => device_ext::device_factory_reset(state),
-        (&Method::Get, "/api/device/charge-control") => device_ext::charge_control_get(state),
-        (&Method::Put, "/api/device/charge-control") => device_ext::charge_control_set(state, body),
         (&Method::Post, "/api/device/power-save") => device_ext::device_power_save_get(state, body),
         (&Method::Put, "/api/device/power-save") => device_ext::device_power_save_set(state, body),
         (&Method::Get, "/api/device/fast-boot") => device_ext::device_fast_boot_get(state),

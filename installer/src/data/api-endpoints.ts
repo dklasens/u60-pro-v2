@@ -22,9 +22,9 @@ export const apiCategories: APICategory[] = [
   },
   {
     name: "Device",
-    count: 16,
+    count: 14,
     capabilities:
-      "System info, battery, CPU, memory, thermal, charger, charge control, reboot, factory reset, power save, fast boot",
+      "System info, battery, CPU, memory, thermal, charger, reboot, factory reset, power save, fast boot",
     endpoints: [
       { method: "GET", path: "/api/device", description: "System information (sysfs)" },
       { method: "GET", path: "/api/battery", description: "Battery status and percentage" },
@@ -36,8 +36,6 @@ export const apiCategories: APICategory[] = [
       { method: "GET", path: "/api/device/system", description: "System details (ubus)" },
       { method: "POST", path: "/api/device/reboot", description: "Reboot device" },
       { method: "POST", path: "/api/device/factory-reset", description: "Factory reset" },
-      { method: "GET", path: "/api/device/charge-control", description: "Charge limit status" },
-      { method: "PUT", path: "/api/device/charge-control", description: "Set charge limit" },
       { method: "POST", path: "/api/device/power-save", description: "Power save mode status" },
       { method: "PUT", path: "/api/device/power-save", description: "Toggle power save" },
       { method: "GET", path: "/api/device/fast-boot", description: "Fast boot status" },

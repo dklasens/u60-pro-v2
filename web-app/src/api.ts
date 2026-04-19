@@ -1,11 +1,27 @@
 // API base — same host as the dashboard, port 9090
 export const API_BASE = `http://${window.location.hostname}:9090`
+export const AUTH_EXPIRED_EVENT = 'zte-auth-expired'
 
 let _token: string | null = sessionStorage.getItem('zte_token')
 
 export function setToken(t: string) { _token = t; sessionStorage.setItem('zte_token', t) }
 export function clearToken() { _token = null; sessionStorage.removeItem('zte_token') }
 export function hasToken() { return !!_token }
+
+export class ApiError extends Error {
+  status?: number
+
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+function emitAuthExpired() {
+  clearToken()
+  window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function req(
@@ -20,14 +36,34 @@ async function req(
   if (_token) headers['Authorization'] = `Bearer ${_token}`
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
-    })
-    const json = await res.json()
-    if (!json.ok) throw new Error(json.error ?? 'request failed')
+    let res: Response
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: controller.signal,
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new ApiError('Timed out reaching the agent')
+      }
+      throw new ApiError(`Failed to reach the agent at ${API_BASE}`)
+    }
+
+    let json: { ok?: boolean; data?: unknown; error?: string }
+    try {
+      json = await res.json()
+    } catch {
+      throw new ApiError(`Invalid response from agent (${res.status})`, res.status)
+    }
+
+    if (res.status === 401 && path !== '/api/auth/login') {
+      emitAuthExpired()
+    }
+    if (!res.ok || !json.ok) {
+      throw new ApiError(json.error ?? `request failed (${res.status})`, res.status)
+    }
     return json.data
   } finally {
     clearTimeout(timeout)
@@ -86,7 +122,21 @@ export interface SpeedInfo { rx_bps: number; tx_bps: number; max_rx_bps: number;
 export interface DeviceInfo { model: string; firmware?: string; uptime_secs?: number; load_avg?: number[] }
 export interface WanInfo { connected: boolean; ipv4?: string; ipv6?: string; gateway?: string; dns?: string[]; apn?: string }
 export interface Wan6Info { connected: boolean; ipv6?: string; prefix?: string; dns?: string[] }
-export interface Client { mac: string; ip?: string; hostname?: string }
+export interface Client {
+  mac: string
+  ip?: string
+  hostname?: string
+  medium?: 'wifi' | 'usb-c' | 'ethernet' | 'wired'
+  medium_detail?: 'wifi_2ghz' | 'wifi_5ghz' | 'usb_c' | 'ethernet'
+  interface?: string
+  wifi_band?: string
+  signal_dbm?: number
+  tx_bitrate_mbps?: number
+  rx_bitrate_mbps?: number
+  expected_throughput_mbps?: number
+  connected_secs?: number
+  wired_link_mbps?: number
+}
 export interface CpuInfo { overall: number; cores: number[] }
 export interface MemInfo { total_kb: number; used_kb: number; free_kb: number; usage_pct: number }
 export interface WifiBand {
@@ -108,8 +158,10 @@ export interface WifiAll {
   band_5g: WifiBand
   guest_ssid?: string
   persist_on_boot: boolean
+  master_supported: boolean
   master_enabled: boolean
-  wifi6_enabled: boolean
+  wifi6_supported: boolean
+  wifi6_enabled?: boolean
 }
 export interface DnsConfig { primary: string; secondary: string; ipv6_primary?: string; ipv6_secondary?: string }
 export interface LanConfig { ip: string; netmask: string; dhcp_start: string; dhcp_end: string; dhcp_lease: string }
@@ -120,17 +172,20 @@ export interface ThermalAll {
   battery?: number; usb?: number; eth_phy?: number; pmic?: number
   xo_therm?: number; pa?: number; sdr?: number
 }
+export interface BatteryBspInfo {
+  online: boolean
+  low_power: boolean
+  using_hw_fg_chip: boolean
+  time_to_full_mins?: number
+  time_to_empty_mins?: number
+}
 export interface BatteryDetail {
   capacity: number; status: string
-  voltage_mv: number; voltage_ocv_mv: number; current_ma: number
+  voltage_mv: number; voltage_max_mv: number; voltage_ocv_mv: number; current_ma: number
   power_mw: number; temperature_c: number
   charge_type: string; health: string; cycle_count: number
-  charge_full_mah: number; charge_full_design_mah: number
+  charge_counter_mah: number; charge_full_mah: number; charge_full_design_mah: number
   time_to_full_secs: number; time_to_empty_secs: number
-}
-export interface ChargeControl {
-  charging_stopped: boolean; battery_status: string; capacity: number
-  charge_limit_enabled: boolean; charge_limit: number; hysteresis: number; manual_override: boolean
 }
 export interface ApnProfile {
   profilename: string; wanapn: string; username: string; password: string
@@ -489,9 +544,25 @@ function mapWan6(d: Record<string, unknown>): Wan6Info {
 }
 
 function mapClients(d: Record<string, unknown>): Client[] {
-  // New format: { clients: [{ mac, ip, hostname }] }
-  const clients = d.clients as Array<{ mac: string; ip: string; hostname?: string }> | undefined
-  if (clients) return clients.map(c => ({ mac: c.mac, ip: c.ip, hostname: c.hostname }))
+  // New format: { clients: [{ mac, ip, hostname, ... }] }
+  const clients = d.clients as Array<Record<string, unknown>> | undefined
+  if (clients) {
+    return clients.map(c => ({
+      mac: c.mac as string,
+      ip: c.ip as string | undefined,
+      hostname: c.hostname as string | undefined,
+      medium: c.medium as Client['medium'],
+      medium_detail: c.medium_detail as Client['medium_detail'],
+      interface: c.interface as string | undefined,
+      wifi_band: c.wifi_band as string | undefined,
+      signal_dbm: c.signal_dbm as number | undefined,
+      tx_bitrate_mbps: c.tx_bitrate_mbps as number | undefined,
+      rx_bitrate_mbps: c.rx_bitrate_mbps as number | undefined,
+      expected_throughput_mbps: c.expected_throughput_mbps as number | undefined,
+      connected_secs: c.connected_secs as number | undefined,
+      wired_link_mbps: c.wired_link_mbps as number | undefined,
+    }))
+  }
   // Legacy fallback: DHCP leases
   const leases = d.dhcp_leases as Array<{ macaddr: string; ipaddr: string; hostname: string }> | undefined
   if (!leases) return []
@@ -529,8 +600,10 @@ function mapWifi(d: Record<string, unknown>): WifiAll {
   }
   const persistRaw = d.persist_on_boot
   const persistOnBoot = parseBoolLike(persistRaw, true)
+  const masterSupported = parseBoolLike(d.wifi_onoff_supported, Object.prototype.hasOwnProperty.call(d, 'wifi_onoff'))
   const masterEnabled = parseBoolLike(d.wifi_onoff, true)
-  const wifi6Enabled = parseBoolLike(d.wifi6_switch, false)
+  const wifi6Supported = parseBoolLike(d.wifi6_supported, Object.prototype.hasOwnProperty.call(d, 'wifi6_switch'))
+  const wifi6Enabled = wifi6Supported ? parseBoolLike(d.wifi6_switch, false) : undefined
   const configuredChannel2g = String(d.channel_2g ?? 'auto') || 'auto'
   const configuredChannel5g = String(d.channel_5g ?? 'auto') || 'auto'
   const actualChannel2g = parseChannelNumber(d.actual_channel_2g)
@@ -568,7 +641,9 @@ function mapWifi(d: Record<string, unknown>): WifiAll {
     },
     guest_ssid: d.guest_ssid as string | undefined,
     persist_on_boot: persistOnBoot,
+    master_supported: masterSupported,
     master_enabled: masterEnabled,
+    wifi6_supported: wifi6Supported,
     wifi6_enabled: wifi6Enabled,
   }
 }
@@ -625,6 +700,16 @@ function mapThermal(d: Record<string, unknown>): ThermalInfo {
   return { cpu_temp_c: d.cpuss_temp as number | undefined }
 }
 
+function mapBatteryBspInfo(d: Record<string, unknown>): BatteryBspInfo {
+  return {
+    online: d.battery_online === 1,
+    low_power: d.battery_low_power === 1,
+    using_hw_fg_chip: d.battery_using_hw_fg_chip === 1,
+    time_to_full_mins: d.battery_time_to_full as number | undefined,
+    time_to_empty_mins: d.battery_time_to_empty as number | undefined,
+  }
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 export const api = {
   // Device
@@ -659,9 +744,8 @@ export const api = {
   // Thermal / charger
   thermal: () => get('/api/device/thermal').then(mapThermal),
   thermalAll: () => get('/api/device/thermal/all') as Promise<ThermalAll>,
+  batteryInfoUbus: () => get('/api/device/battery-info').then(mapBatteryBspInfo),
   batteryDetail: () => get('/api/device/battery/detail') as Promise<BatteryDetail>,
-  chargeControlGet: () => get('/api/device/charge-control') as Promise<ChargeControl>,
-  chargeControlSet: (body: Record<string, unknown>) => put('/api/device/charge-control', body) as Promise<ChargeControl>,
 
   // APN
   apnModeGet:      () => get('/api/router/apn/mode'),

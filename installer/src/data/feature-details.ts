@@ -7,7 +7,6 @@ import {
   Radio,
   ShieldCheck,
   Clock,
-  BatteryCharging,
   Terminal,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -92,15 +91,6 @@ export const featureDetails: FeatureDetail[] = [
       "Schedule any API action as a one-time or recurring job.",
     howItWorks:
       "Create cron-style jobs that call any agent API endpoint. Examples: reboot at 3 AM daily, toggle airplane mode on a schedule, run a speed test every hour. Jobs are persisted to disk and survive reboots.",
-  },
-  {
-    icon: BatteryCharging,
-    title: "Charge Policy",
-    category: "Device",
-    description:
-      "iPhone-style charge limiter to protect battery health.",
-    howItWorks:
-      "Set an 80% charge cap — the agent listens for ubus charger events and reacts instantly to state changes. Pauses charging at the limit and resumes at 75% (5% hysteresis). Keeps the battery in its healthiest charge range for long-term use.",
   },
   {
     icon: Terminal,

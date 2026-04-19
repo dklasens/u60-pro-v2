@@ -4,7 +4,6 @@ use serde_json::{json, Value};
 
 use crate::at_cmd::AtPort;
 use crate::auth::{self, AuthState};
-use crate::charge_policy::ChargeLimitEnforcer;
 use crate::connection_logger::ConnectionLogger;
 use crate::scheduler::Scheduler;
 use crate::signal_logger::SignalLogger;
@@ -21,7 +20,6 @@ pub struct AppState {
     pub doh: std::sync::Arc<crate::doh::DohProxy>,
     pub scheduler: Arc<Scheduler>,
     pub speedtest: crate::speedtest::SpeedTest,
-    pub charge_limit: Arc<ChargeLimitEnforcer>,
     pub sms_forward: Arc<SmsForwarder>,
     pub signal_logger: Arc<SignalLogger>,
     pub connection_logger: Arc<ConnectionLogger>,
@@ -38,7 +36,6 @@ impl AppState {
             doh: std::sync::Arc::new(crate::doh::DohProxy::new()),
             scheduler: Arc::new(Scheduler::new()),
             speedtest: crate::speedtest::SpeedTest::new(),
-            charge_limit: Arc::new(ChargeLimitEnforcer::new()),
             sms_forward: Arc::new(SmsForwarder::new()),
             signal_logger: Arc::new(SignalLogger::new()),
             connection_logger: Arc::new(ConnectionLogger::new()),

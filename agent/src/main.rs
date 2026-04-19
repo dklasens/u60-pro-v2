@@ -1,7 +1,6 @@
 mod at_cmd;
 mod auth;
 mod cell;
-pub mod charge_policy;
 mod connection_logger;
 mod csv_utils;
 mod device_ext;
@@ -65,12 +64,10 @@ fn main() {
     // Event bus: single `ubus listen` process dispatches to subscribers
     let event_bus = EventBus::new();
     let sms_rx = event_bus.subscribe("zwrt_wms_status_event");
-    let charger_rx = event_bus.subscribe("BSP_CHARGER_EVENT");
     event_bus.start();
 
     state.doh.auto_start();
     state.scheduler.start(Arc::clone(&state));
-    state.charge_limit.start(charger_rx);
     state.sms_forward.start(sms_rx);
 
     // Apply persisted TTL settings if they exist

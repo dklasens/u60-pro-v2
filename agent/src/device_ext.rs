@@ -2,7 +2,6 @@ use std::fs;
 
 use serde_json::{json, Value};
 
-use crate::charge_policy;
 use crate::handlers::AppState;
 use crate::ubus;
 use crate::validate::validate_ubus_input;
@@ -61,6 +60,7 @@ pub fn device_battery_detail(_state: &AppState) -> (u16, Value) {
     let capacity = read_i64("capacity").unwrap_or(0);
     let status = read_sysfs("status").unwrap_or_default();
     let voltage_uv = read_i64("voltage_now").unwrap_or(0);
+    let voltage_max_uv = read_i64("voltage_max").unwrap_or(0);
     let voltage_ocv_uv = read_i64("voltage_ocv").unwrap_or(0);
     let current_ua = read_i64("current_now").unwrap_or(0);
     // power_now sysfs is unreliable on PM7550B — compute from V * I instead
@@ -69,6 +69,7 @@ pub fn device_battery_detail(_state: &AppState) -> (u16, Value) {
     let charge_type = read_sysfs("charge_type").unwrap_or_default();
     let health = read_sysfs("health").unwrap_or_default();
     let cycle_count = read_i64("cycle_count").unwrap_or(0);
+    let charge_counter_uah = read_i64("charge_counter").unwrap_or(0);
     let charge_full_uah = read_i64("charge_full").unwrap_or(0);
     let charge_full_design_uah = read_i64("charge_full_design").unwrap_or(0);
     let time_to_full = read_i64("time_to_full_avg").unwrap_or(-1);
@@ -83,6 +84,7 @@ pub fn device_battery_detail(_state: &AppState) -> (u16, Value) {
             "capacity": capacity,
             "status": status,
             "voltage_mv": voltage_uv / 1000,
+            "voltage_max_mv": voltage_max_uv / 1000,
             "voltage_ocv_mv": voltage_ocv_uv / 1000,
             "current_ma": current_ua / 1000,
             "power_mw": power_mw,
@@ -90,6 +92,7 @@ pub fn device_battery_detail(_state: &AppState) -> (u16, Value) {
             "charge_type": charge_type,
             "health": health,
             "cycle_count": cycle_count,
+            "charge_counter_mah": charge_counter_uah / 1000,
             "charge_full_mah": charge_full_uah / 1000,
             "charge_full_design_mah": charge_full_design_uah / 1000,
             "time_to_full_secs": time_to_full,
@@ -122,7 +125,7 @@ pub fn device_reboot(_state: &AppState) -> (u16, Value) {
 pub fn agent_restart(_state: &AppState) -> (u16, Value) {
     // Spawn a detached process that waits, then kills and restarts the agent.
     // We respond first so the client gets a 200 before we die.
-    let script = "sleep 1; kill $(pidof zte-agent) 2>/dev/null; sleep 1; /data/local/tmp/start_zte_agent.sh &";
+    let script = "sleep 1; kill $(pidof zte-agent) 2>/dev/null; sleep 1; sh /data/local/tmp/start_zte_agent.sh >/dev/null 2>&1 &";
     match std::process::Command::new("sh")
         .args(["-c", script])
         .stdin(std::process::Stdio::null())
@@ -147,83 +150,6 @@ pub fn device_factory_reset(_state: &AppState) -> (u16, Value) {
         Ok(data) => (200, json!({"ok": true, "data": data})),
         Err(e) => (503, json!({"ok": false, "error": e})),
     }
-}
-
-pub fn charge_control_get(state: &AppState) -> (u16, Value) {
-    let read_sysfs = |path: &str| -> String {
-        fs::read_to_string(path)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
-    };
-
-    let battery_status = read_sysfs("/sys/class/power_supply/battery/status");
-    let capacity: i64 = read_sysfs("/sys/class/power_supply/battery/capacity")
-        .parse()
-        .unwrap_or(0);
-
-    let charging_stopped = charge_policy::is_charging_stopped();
-
-    let (limit_enabled, limit_pct, hysteresis, manual_override) = state.charge_limit.get();
-
-    (
-        200,
-        json!({
-            "ok": true,
-            "data": {
-                "charging_stopped": charging_stopped,
-                "battery_status": battery_status,
-                "capacity": capacity,
-                "charge_limit_enabled": limit_enabled,
-                "charge_limit": limit_pct,
-                "hysteresis": hysteresis,
-                "manual_override": manual_override,
-            }
-        }),
-    )
-}
-
-pub fn charge_control_set(state: &AppState, body: &[u8]) -> (u16, Value) {
-    let parsed: Value = match serde_json::from_slice(body) {
-        Ok(v) => v,
-        Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
-    };
-    if let Err(e) = validate_ubus_input(&parsed) {
-        return (400, json!({"ok": false, "error": e}));
-    }
-
-    // Manual charge stop/resume via sysfs
-    if let Some(stopped) = parsed["charging_stopped"].as_bool() {
-        charge_policy::set_charging(!stopped);
-        // Set manual override so enforcer doesn't fight the user
-        state.charge_limit.set_manual_override(stopped);
-    }
-
-    // Charge limit settings
-    if parsed.get("charge_limit_enabled").is_some()
-        || parsed.get("charge_limit").is_some()
-        || parsed.get("hysteresis").is_some()
-    {
-        let (cur_enabled, cur_limit, cur_hysteresis, _) = state.charge_limit.get();
-        let enabled = parsed["charge_limit_enabled"]
-            .as_bool()
-            .unwrap_or(cur_enabled);
-        let limit = parsed["charge_limit"]
-            .as_u64()
-            .map(|v| v as u8)
-            .unwrap_or(cur_limit);
-        let hysteresis = parsed["hysteresis"]
-            .as_u64()
-            .map(|v| v as u8)
-            .unwrap_or(cur_hysteresis);
-
-        if let Err(e) = state.charge_limit.set(enabled, limit, hysteresis) {
-            return (400, json!({"ok": false, "error": e}));
-        }
-    }
-
-    // Return updated state
-    charge_control_get(state)
 }
 
 pub fn device_power_save_get(_state: &AppState, body: &[u8]) -> (u16, Value) {
