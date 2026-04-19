@@ -1,5 +1,7 @@
 # Open U60 Pro
 
+Credit to: https://github.com/jesther-ai/open-u60-pro (which this project is based on). 
+
 Open U60 Pro is a custom control plane for the ZTE U60 Pro. It replaces the stock web UI's limited controls with:
 
 - a Rust agent that runs on the modem and exposes a JSON API on `http://192.168.0.1:9090`
