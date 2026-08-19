@@ -7,6 +7,7 @@ logs/
 device_report.json
 ubus_probe_report.json
 node_modules/
+.venv/
 __pycache__/
 *.py[cod]
 *.local.json
