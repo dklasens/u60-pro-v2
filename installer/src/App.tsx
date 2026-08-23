@@ -133,6 +133,7 @@ function App() {
   const [detection, setDetection] = useState<DetectionResult | null>(null)
   const [detecting, setDetecting] = useState(false)
   const [running, setRunning] = useState(false)
+  const [showLog, setShowLog] = useState(false)
   const [activeOperation, setActiveOperation] = useState('Ready to inspect the modem')
   const [steps, setSteps] = useState<Record<string, StepStatus>>(initialSteps)
   const [logs, setLogs] = useState<string[]>([])
@@ -260,6 +261,7 @@ function App() {
     setLogs([])
     setSteps(initialSteps)
     setRunning(true)
+    setShowLog(true)
     setActiveOperation(`Starting ${operationLabel.toLowerCase()}…`)
     try {
       const result = await invoke<InstallOutcome>('run_install', { request })
@@ -296,30 +298,19 @@ function App() {
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div className="brand-mark"><Icon name="router" size={26} /></div>
+        <div className="brand-mark"><Icon name="router" size={22} /></div>
         <div>
-          <p className="eyebrow">OPEN U60 PRO</p>
-          <h1>Modem installer</h1>
+          <h1>Open U60 Pro Installer</h1>
           <p className="subtitle">Install, repair, or update your MU5250 without the command line.</p>
         </div>
-        <span className="platform-badge">Windows · macOS</span>
       </header>
-
-      <section className={`activity-bar ${running || detecting ? 'active' : ''}`} aria-live="polite">
-        {(running || detecting) && <span className="spinner" aria-hidden="true" />}
-        <div>
-          <span className="activity-label">{running ? 'In progress' : detecting ? 'Detecting' : 'Status'}</span>
-          <strong>{activeOperation}</strong>
-        </div>
-      </section>
-      {(running || detecting) && <div className="progress-track"><span /></div>}
 
       <div className="content-grid">
         <section className="panel device-panel">
           <div className="section-heading">
-            <div><p className="section-kicker">1 · DEVICE</p><h2>Connection</h2></div>
+            <h2>Connection</h2>
             <button className="secondary-button" onClick={() => void detectDevice()} disabled={detecting || running}>
-              <Icon name="refresh" size={17} /> Detect
+              <Icon name="refresh" size={15} /> Detect
             </button>
           </div>
           <label className="field">
@@ -372,9 +363,9 @@ function App() {
 
         <section className="panel setup-panel">
           <div className="section-heading">
-            <div><p className="section-kicker">2 · SETUP</p><h2>{detection?.operation ? `${operationLabel} options` : 'Installation options'}</h2></div>
+            <h2>{detection?.operation ? `${operationLabel} options` : 'Setup'}</h2>
             <button className="text-button" type="button" onClick={() => setShowCredentials((value) => !value)}>
-              <Icon name="eye" size={17} /> {showCredentials ? 'Hide' : 'Show'} credentials
+              <Icon name="eye" size={15} /> {showCredentials ? 'Hide' : 'Show'} credentials
             </button>
           </div>
 
@@ -438,27 +429,36 @@ function App() {
         </section>
       </div>
 
-      <section className="panel progress-panel">
-        <div className="section-heading compact">
-          <div><p className="section-kicker">3 · PROGRESS</p><h2>Installation steps</h2></div>
-        </div>
+      <section className={`panel progress-panel ${running || detecting ? 'active' : ''}`}>
+        {(running || detecting) && <div className="progress-track" aria-hidden="true"><span /></div>}
         <ol className="steps">
           {visibleSteps.map((step) => (
             <li className={steps[step]} key={step}>
-              <span className="step-marker">{steps[step] === 'complete' ? <Icon name="check" size={15} /> : steps[step] === 'failed' ? '!' : steps[step] === 'skipped' ? '–' : ''}</span>
+              <span className="step-marker">{steps[step] === 'complete' ? <Icon name="check" size={13} /> : steps[step] === 'failed' ? '!' : steps[step] === 'skipped' ? '–' : ''}</span>
               <span>{stepLabels[step]}</span>
             </li>
           ))}
         </ol>
-
-        <div className="log-heading">
-          <span><Icon name="terminal" size={16} /> Detailed log</span>
-          <button className="text-button" disabled={!logs.length} onClick={() => void copyWithFeedback(logText)}><Icon name="copy" size={15} /> Copy log</button>
+        <div className="progress-footer">
+          <div className="progress-status" aria-live="polite">
+            {(running || detecting) && <span className="spinner" aria-hidden="true" />}
+            <span>{activeOperation}</span>
+          </div>
+          <button className="text-button" type="button" onClick={() => setShowLog((value) => !value)}>
+            <Icon name="terminal" size={14} /> {showLog ? 'Hide log' : 'View log'}
+          </button>
         </div>
-        <pre className="log" ref={logRef} aria-live="polite">{logs.length ? logText : 'Detailed progress and diagnostic messages will appear here.'}</pre>
+        {showLog && (
+          <div className="log-wrap">
+            <pre className="log" ref={logRef}>{logs.length ? logText : 'Detailed progress and diagnostic messages will appear here.'}</pre>
+            <button className="text-button copy-log" disabled={!logs.length} onClick={() => void copyWithFeedback(logText)}>
+              <Icon name="copy" size={13} /> {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+        )}
       </section>
 
-      <footer><Icon name="lock" size={14} /> Credentials stay on this computer and are sent only to the modem.</footer>
+      <footer><Icon name="lock" size={13} /> Credentials stay on this computer and are sent only to the modem.</footer>
 
       {confirming && (
         <div className="modal-backdrop" role="presentation">
