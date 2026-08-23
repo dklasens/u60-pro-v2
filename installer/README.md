@@ -7,7 +7,7 @@ dashboard.
 
 End users download a native installer from GitHub Releases:
 
-- Windows: `.msi` or NSIS setup `.exe` (x64)
+- Windows: `.msi`, NSIS setup `.exe`, or a portable `.zip` with bundled ADB (x64)
 - macOS: `.dmg` and signature-preserving `.app.zip` for Apple Silicon or Intel
 
 The application bundles the correct Android platform-tools and downloads

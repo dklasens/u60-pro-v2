@@ -160,6 +160,22 @@ jobs:
           hdiutil detach "$MOUNT_POINT"
           trap - EXIT
 
+      - name: Package Windows portable ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = node -p "require('./installer/package.json').version"
+          $exe = Get-ChildItem "target/release/*.exe" | Where-Object { $_.Name -notlike '*-setup*' } | Select-Object -First 1
+          if (-not $exe) { throw 'Built application executable not found under target/release' }
+          $stage = Join-Path $env:RUNNER_TEMP 'open-u60-pro-portable'
+          New-Item -ItemType Directory -Force "$stage/platform-tools" | Out-Null
+          Copy-Item $exe.FullName (Join-Path $stage 'Open U60 Pro Installer.exe')
+          Copy-Item 'installer/assets/platform-tools/*' "$stage/platform-tools" -Recurse
+          $archive = "Open-U60-Pro-Installer_${version}_x64-portable.zip"
+          Compress-Archive -Path "$stage/*" -DestinationPath $archive
+          Get-FileHash $archive -Algorithm SHA256
+          "WINDOWS_ZIP=$archive" >> $env:GITHUB_ENV
+
       - name: Upload manually triggered package
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag == ''
         uses: actions/upload-artifact@v4
@@ -168,6 +184,7 @@ jobs:
           path: |
             target/**/bundle/**/*
             Open-U60-Pro-Installer_*.app.zip
+            Open-U60-Pro-Installer_*-portable.zip
           if-no-files-found: error
 
       - name: Add macOS app ZIP to release
@@ -177,3 +194,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: gh release upload "$RELEASE_TAG" "$MACOS_ZIP" --clobber
+
+      - name: Add Windows portable ZIP to release
+        if: runner.os == 'Windows' && (startsWith(github.ref, 'refs/tags/') || inputs.release_tag != '')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" "$WINDOWS_ZIP" --clobber
