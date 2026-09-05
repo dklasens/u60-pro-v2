@@ -138,6 +138,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="$GITHUB_REF_NAME"
-          ARGS=(--title "$TAG" --notes-file release-notes.md --generate-notes)
+          ARGS=(--draft --title "$TAG" --notes-file release-notes.md --generate-notes)
           case "$TAG" in *-rc*) ARGS+=(--prerelease) ;; esac
           gh release create "$TAG" "${ARGS[@]}" assets/*

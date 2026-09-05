@@ -260,3 +260,4 @@ jobs:
               f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
           PY
           gh release upload "$RELEASE_TAG" sha256sums.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
