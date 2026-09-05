@@ -10,11 +10,11 @@ jobs:
   agent-and-dashboard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -39,16 +39,28 @@ jobs:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: actions/setup-node@v4
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: installer/package-lock.json
       - run: npm ci && npm run build
         working-directory: installer
+      - name: Fetch native installer resources
+        shell: bash
+        env:
+          PLATFORM_TOOLS: ${{ runner.os == 'macOS' && 'darwin' || 'windows' }}
+        run: |
+          curl --fail --silent --show-error --location --max-time 120 "https://dl.google.com/android/repository/platform-tools-latest-${PLATFORM_TOOLS}.zip" -o "$RUNNER_TEMP/platform-tools.zip"
+          python -c "import os, zipfile; zipfile.ZipFile(os.path.join(os.environ['RUNNER_TEMP'], 'platform-tools.zip')).extractall('installer/assets')"
+          test -f installer/assets/platform-tools/adb || test -f installer/assets/platform-tools/adb.exe
+          if [ -f installer/assets/platform-tools/adb ]; then chmod 755 installer/assets/platform-tools/adb; fi
       - run: cargo test -p mu5250-installer -p process-runner --locked
       - run: cargo clippy -p mu5250-installer -p process-runner --all-targets --locked -- -D warnings
