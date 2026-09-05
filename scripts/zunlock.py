@@ -35,6 +35,10 @@ Inputs (prompted if not given):
 """
 
 import argparse
+from pathlib import Path
+import shutil
+import uuid
+from device_identity import device_identity
 import getpass
 import hashlib
 import http.cookiejar
@@ -163,8 +167,8 @@ def openssl(direction, src, dst, password):
         out = _py_crypt(data, password, encrypt=(direction == "e"))
     except ImportError:
         subprocess.run(["openssl", "enc", "-des-ede3-cbc", f"-{direction}",
-                        "-md", "sha256", "-pass", f"pass:{password}",
-                        "-in", src, "-out", dst], check=True)
+                        "-md", "sha256", "-pass", "stdin",
+                        "-in", src, "-out", dst], input=(password + "\n").encode(), timeout=60, check=True)
         return
     except ValueError as e:
         raise subprocess.CalledProcessError(1, ["openssl", direction]) from e
@@ -245,7 +249,8 @@ def run_unlock(gw, pw, suffix, *, dry_run=False, yes=False, work=None,
     UnlockError on any fatal problem. Returns the work directory.
     """
     work = work or tempfile.mkdtemp(prefix="zunlock-")
-    os.makedirs(work, exist_ok=True)
+    os.makedirs(work, mode=0o700, exist_ok=True)
+    os.chmod(work, 0o700)
     log(f"[*] work dir: {work}")
 
     r = Router(gw, pw)
@@ -255,7 +260,13 @@ def run_unlock(gw, pw, suffix, *, dry_run=False, yes=False, work=None,
     except Exception as e:
         raise UnlockError(f"router login failed (wrong admin password? "
                           f"device unreachable?): {e}") from e
-    imei = r.call("zwrt_web", "device_info", {})[0]["result"][1]["imei"]
+    info = r.call("zwrt_web", "device_info", {})[0]["result"][1]
+    identity = device_identity(info)
+    identity_file = Path(work) / 'identity.json'
+    if identity_file.exists() and json.loads(identity_file.read_text()) != identity:
+        raise UnlockError('The modem identity changed since preparation')
+    identity_file.write_text(json.dumps(identity))
+    imei = info["imei"]
     log(f"[+] device IMEI: {imei[:6]}*********")
 
     log("[*] requesting fresh config backup...")
@@ -269,6 +280,16 @@ def run_unlock(gw, pw, suffix, *, dry_run=False, yes=False, work=None,
         f.write(r.get("/backup/back_parameter"))
     log(f"[+] backup downloaded: {os.path.getsize(enc_orig)} bytes")
 
+    recovery_root = Path.home() / '.local/share/open-u60-pro/recovery'
+    recovery_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    recovery = recovery_root / str(uuid.uuid4())
+    recovery.mkdir(mode=0o700)
+    with open(recovery / 'back_parameter.orig', 'xb') as saved, open(enc_orig, 'rb') as original:
+        os.chmod(saved.name, 0o600)
+        shutil.copyfileobj(original, saved)
+        saved.flush(); os.fsync(saved.fileno())
+    (recovery / 'identity.json').write_text(json.dumps(identity))
+    log(f'[+] Original encrypted recovery backup retained: {recovery}')
     password = imei + suffix
     outer = os.path.join(work, "outer.tgz")
     log("[*] decrypting (des-ede3-cbc/sha256)...")
@@ -299,6 +320,8 @@ def run_unlock(gw, pw, suffix, *, dry_run=False, yes=False, work=None,
         if not proceed:
             raise UnlockError("aborted by user; artifacts kept in " + work)
 
+    if device_identity(r.call("zwrt_web", "device_info", {})[0]["result"][1]) != identity:
+        raise UnlockError('The modem identity changed before restore')
     log("[*] uploading...")
     resp = r.upload(data)
     log(f"[+] upload response: {resp}")
@@ -341,7 +364,7 @@ def main():
         sys.exit(str(e))
     if not args.dry_run:
         print("    Run:  adb devices")
-        print("    You should see a device (serial 0123456789ABCDEF).")
+        print("    You should see your connected modem in the device list.")
         print("    Then deploy your agent / dropbear as usual — see "
               "docs/DEPLOYMENT.md.")
 

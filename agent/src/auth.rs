@@ -62,6 +62,10 @@ impl AuthState {
         Ok(())
     }
 
+    pub fn has_pin(&self) -> bool {
+        self.pin_hash.safe_lock().is_some()
+    }
+
     pub fn has_password(&self) -> bool {
         self.password_hash.safe_lock().is_some()
     }
@@ -126,7 +130,7 @@ impl AuthState {
 
         let token_bytes = {
             let mut hasher = Sha256::new();
-            hasher.update(&random_bytes);
+            hasher.update(random_bytes);
             hasher.update(hash.as_bytes());
             hasher.update(now.to_le_bytes());
             let digest = hasher.finalize();
@@ -205,7 +209,7 @@ fn iterated_hash(salt: &[u8], password: &str) -> String {
     for _ in 1..HASH_ITERATIONS {
         let mut hasher = Sha256::new();
         hasher.update(salt);
-        hasher.update(&digest);
+        hasher.update(digest);
         digest = hasher.finalize();
     }
     hex_encode(&digest)
@@ -243,7 +247,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(hex: &str) -> Result<Vec<u8>, ()> {
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err(());
     }
     let mut bytes = Vec::with_capacity(hex.len() / 2);

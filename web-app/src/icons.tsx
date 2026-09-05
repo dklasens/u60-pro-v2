@@ -33,10 +33,10 @@ export const IHome = make(
 )
 export const ISignal = make(
   <>
-    <path d="M4 18.5a12 12 0 0 1 16 0" opacity={0.35} />
-    <path d="M7 15a8 8 0 0 1 10 0" opacity={0.65} />
-    <path d="M9.8 11.8a4 4 0 0 1 4.4 0" />
-    <circle cx={12} cy={19} r={1} fill="currentColor" stroke="none" />
+    <path d="M3 8.5a14.5 14.5 0 0 1 18 0" />
+    <path d="M6 12a9.5 9.5 0 0 1 12 0" />
+    <path d="M9 15.5a5 5 0 0 1 6 0" />
+    <circle cx={12} cy={19} r={1.3} fill="currentColor" stroke="none" />
   </>,
 )
 export const IGlobe = make(

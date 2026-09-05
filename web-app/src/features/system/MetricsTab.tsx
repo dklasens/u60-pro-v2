@@ -68,6 +68,7 @@ function ChargeControlCard() {
   return (
     <Card title="Charge control">
       <div className="space-y-3">
+        {cc.last_error && <p role="alert" className="text-[12px] text-danger">{cc.last_error}</p>}
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[13px] font-medium text-ink">Charging</p>

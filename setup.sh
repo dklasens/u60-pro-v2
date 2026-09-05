@@ -1,5 +1,10 @@
 #!/bin/bash
 set -e
+umask 077
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+cd "$ROOT_DIR"
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
 
 # ── Colors ───────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -25,7 +30,7 @@ else
     exit 1
 fi
 
-GATEWAY=192.168.0.1
+GATEWAY="${ZTE_GATEWAY:-192.168.0.1}"
 AGENT_PORT=9090
 SSH_PORT=2222
 TARGET=aarch64-unknown-linux-musl
@@ -210,282 +215,44 @@ if [ "$BUILD_CHOICE" = "2" ]; then
 fi
 ok "All prerequisites found."
 
-# ── Helper: SHA-256 (file) ───────────────────────────────────────────
-sha256_file() {
-    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}' \
-        || sha256sum "$1" | awk '{print $1}'
-}
-
-# ── Helper: timeout (macOS-compatible) ───────────────────────────────
-# macOS doesn't have GNU timeout; use a portable fallback
-wait_with_timeout() {
-    local secs="$1"; shift
-    if command -v timeout >/dev/null 2>&1; then
-        timeout "$secs" "$@"
-    else
-        # Portable fallback: run in background with a timer
-        "$@" &
-        local pid=$!
-        local i=0
-        while [ "$i" -lt "$secs" ]; do
-            if ! kill -0 "$pid" 2>/dev/null; then
-                wait "$pid"
-                return $?
-            fi
-            sleep 1
-            i=$((i + 1))
-        done
-        kill "$pid" 2>/dev/null
-        return 124
-    fi
-}
-
-# ── Transport detection ──────────────────────────────────────────────
-SSH_CMD="ssh -p $SSH_PORT -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts.d/zte -o ConnectTimeout=3 root@$GATEWAY"
-USE_SSH=false
-
-if $SSH_CMD "echo ok" >/dev/null 2>&1; then
-    USE_SSH=true
-    ok "SSH reachable — using wireless deploy."
+# Validate credentials before any unlock or deployment write.
+ZTE_AGENT_PASSWORD="$AGENT_PASSWORD" python3 -c 'import importlib.util,os; s=importlib.util.spec_from_file_location("startup", "scripts/render-agent-startup.py"); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.render(os.environ["ZTE_AGENT_PASSWORD"],os.environ.get("ZTE_AGENT_PIN", ""))'
+PREPARE=(python3 scripts/deploy-components.py --prepare-only --bundle-output "$WORK/packages")
+if [ -n "${ZTE_BUNDLE_PATH:-}" ]; then PREPARE+=(--bundle "$ZTE_BUNDLE_PATH"); fi
+if [ "$BUILD_CHOICE" = 1 ]; then
+    PREPARE+=(--release-agent "$BINARY")
 else
-    warn "SSH not reachable — falling back to ADB."
+    cargo build --locked --release --target "$TARGET" -p zte-agent
+fi
+"${PREPARE[@]}"
 
-# ── Steps 1-2: Enable ADB + connect ──────────────────────────────────
-if adb devices 2>/dev/null | grep -qw device; then
-    ok "ADB already connected, skipping unlock."
+# Probe transports without accepting an arbitrary TCP listener as a modem.
+# deploy-components verifies model, firmware, architecture, uid and fingerprint.
+EXTRA=()
+SSH=(ssh -p "$SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=accept-new
+     -o "UserKnownHostsFile=$HOME/.ssh/known_hosts.d/zte" -o ConnectTimeout=5 "root@$GATEWAY")
+mkdir -p "$HOME/.ssh/known_hosts.d"
+if "${SSH[@]}" true >/dev/null 2>&1; then
+    ok "SSH is reachable. Device identity will be verified before writes."
+elif adb devices 2>/dev/null | grep -q 'device$'; then
+    EXTRA+=(--auto-adb)
 else
-    # ── Unlock: config backup/restore (B04+ locked firmware) ─────────
-    # The old `zwrt_bsp.usb set {mode:debug}` primitive was removed in
-    # HK B04 / CN B28, so ADB can no longer be switched on over the web.
-    # The way back in is the device's own config backup/restore path:
-    # zunlock.py downloads a fresh encrypted backup, injects a boot-time
-    # usb_op payload into its rc.local, repacks it md5-valid, re-encrypts
-    # and restores it. The device reboots and comes back with adbd up.
-    # Backup password = <IMEI><suffix>; the IMEI is read from the device,
-    # only the platform suffix (passphrase) is supplied by you. No secrets
-    # are hardcoded here — see docs/DEPLOYMENT.md.
-    info "No ADB and no SSH — device looks locked (B04+)."
-    info "Unlock method: config backup/restore via scripts/zunlock.py."
-    echo ""
-    warn "This restores a patched config backup: current settings are"
-    warn "overwritten and the device reboots (~90 s). On a fresh device"
-    warn "there is nothing to lose."
-    echo ""
-
     SUFFIX="${ZTE_BACKUP_SUFFIX:-}"
-    if [ -z "$SUFFIX" ]; then
-        echo -e "${CYAN}Backup-key suffix / passphrase:${NC} "
-        read -rs SUFFIX; echo
-        [ -z "$SUFFIX" ] && fail "Backup-key suffix cannot be empty."
+    if [ -z "$SUFFIX" ]; then read -rsp 'Backup-key suffix: ' SUFFIX; echo; fi
+    [ -n "$SUFFIX" ] || fail 'Backup-key suffix cannot be empty.'
+    ROUTER_PW="$ROUTER_PASSWORD" ZTE_BACKUP_SUFFIX="$SUFFIX" \
+        python3 scripts/zunlock.py --gw "$GATEWAY" --dry-run --keep-work "$WORK/unlock"
+    if [ "${ZTE_DRY_RUN:-0}" = 1 ]; then
+        ok 'Unlock dry run completed. Device deployment/storage checks require ADB or SSH and have not run.'
+        exit 0
     fi
-
-    # Stage 1 — dry run: login, fetch backup, decrypt, patch, repack, all
-    # WITHOUT uploading. Catches a wrong suffix before touching the device.
-    info "Stage 1/2 — dry run (makes no changes to the device)..."
-    if ! ROUTER_PW="$ROUTER_PASSWORD" ZTE_BACKUP_SUFFIX="$SUFFIX" \
-        python3 scripts/zunlock.py --gw "$GATEWAY" --dry-run; then
-        fail "Unlock dry-run failed — check the output above (wrong suffix?)."
-    fi
-    ok "Dry-run passed — backup decrypts and patches cleanly."
-
-    # Stage 2 — real unlock. zunlock.py keeps its own "Proceed? [y/N]"
-    # consent gate immediately before the upload + restore + reboot.
-    info "Stage 2/2 — unlock (upload + restore + reboot)..."
-    if ! ROUTER_PW="$ROUTER_PASSWORD" ZTE_BACKUP_SUFFIX="$SUFFIX" \
-        python3 scripts/zunlock.py --gw "$GATEWAY"; then
-        fail "Unlock failed — check the output above."
-    fi
-
-    info "Waiting for the device to reboot and ADB to come up (~90 s)..."
-    if ! wait_with_timeout 180 adb wait-for-device 2>/dev/null; then
-        fail "ADB device not found after unlock. Check the USB cable, then re-run."
-    fi
-    ok "ADB device connected — unlock complete."
+    ROUTER_PW="$ROUTER_PASSWORD" ZTE_BACKUP_SUFFIX="$SUFFIX" \
+        python3 scripts/zunlock.py --gw "$GATEWAY" --keep-work "$WORK/unlock"
+    info 'Waiting up to three minutes for ADB…'
+    python3 -c 'import subprocess; subprocess.run(["adb", "wait-for-device"], timeout=180, check=True)'
+    EXTRA+=(--auto-adb --identity-file "$WORK/unlock/identity.json")
 fi
-fi
-
-# ── Helper: remote command / push ────────────────────────────────────
-rcmd() {
-    if [ "$USE_SSH" = true ]; then
-        $SSH_CMD "$@"
-    else
-        adb shell "$@"
-    fi
-}
-
-# rcmd_check: like rcmd but reliably returns the remote exit code.
-# adb shell does not propagate exit codes on macOS, so we embed a sentinel.
-rcmd_check() {
-    if [ "$USE_SSH" = true ]; then
-        $SSH_CMD "$@"
-    else
-        adb shell "($*) && echo __ADB_OK__" 2>/dev/null | grep -q "__ADB_OK__"
-    fi
-}
-
-rpush() {
-    local src="$1" dst="$2"
-    if [ "$USE_SSH" = true ]; then
-        cat "$src" | $SSH_CMD "cat > $dst && chmod +x $dst"
-    else
-        adb push "$src" "$dst" && adb shell "chmod +x $dst"
-    fi
-}
-
-# Authenticate through the active management channel. In ADB mode the agent
-# is deliberately bound to the LAN address, while `adb forward tcp:...`
-# connects to the device loopback interface. Curl the LAN address from the
-# device instead of widening the bind or relying on a Host-header override.
-agent_login() {
-    local login_body response
-    login_body=$(AGENT_PASSWORD="$AGENT_PASSWORD" python3 -c \
-        'import json,os; print(json.dumps({"password": os.environ["AGENT_PASSWORD"]}))')
-
-    if [ "$USE_SSH" = true ]; then
-        response=$(curl --fail --silent --show-error \
-            --connect-timeout 5 --max-time 10 \
-            "http://$GATEWAY:$AGENT_PORT/api/auth/login" \
-            -H 'Content-Type: application/json' \
-            --data-binary "$login_body") || return 1
-    else
-        response=$(printf '%s' "$login_body" | adb shell \
-            "/usr/bin/curl --fail --silent --show-error --connect-timeout 5 --max-time 10 -H 'Content-Type: application/json' --data-binary @- http://$GATEWAY:$AGENT_PORT/api/auth/login") \
-            || return 1
-    fi
-
-    printf '%s' "$response" | python3 -c \
-        'import json,sys; token=(json.load(sys.stdin).get("data") or {}).get("token"); raise SystemExit(1) if not token else print(token)'
-}
-
-# ── Step 3: Get zte-agent binary ─────────────────────────────────────
-if [ "$BUILD_CHOICE" = "1" ]; then
-    info "Downloading zte-agent from GitHub releases..."
-    mkdir -p "$(dirname "$BINARY")"
-    if ! curl -sfL "$DOWNLOAD_URL" -o "$BINARY"; then
-        fail "Download failed. Check your internet connection or try: $DOWNLOAD_URL"
-    fi
-    # Verify download
-    FILE_SIZE=$(wc -c < "$BINARY" | tr -d ' ')
-    if [ "$FILE_SIZE" -lt 1000 ]; then
-        rm -f "$BINARY"
-        fail "Downloaded file is too small ($FILE_SIZE bytes) — likely not a valid binary. Check the release page."
-    fi
-    chmod +x "$BINARY"
-    ok "Downloaded zte-agent ($FILE_SIZE bytes)."
-else
-    info "Building zte-agent (this may take a few minutes on first run)..."
-    cargo build --release --target "$TARGET" -p zte-agent
-    ok "Build complete."
-fi
-
-# ── Step 4: Push binary ─────────────────────────────────────────────
-info "Checking zte-agent binary..."
-LOCAL_SHA=$(sha256_file "$BINARY")
-REMOTE_SHA=$(rcmd "sha256sum $REMOTE_BIN 2>/dev/null" | awk '{print $1}')
-if [ "$LOCAL_SHA" = "$REMOTE_SHA" ]; then
-    ok "Binary unchanged, skipping push."
-else
-    info "Stopping running agent before push..."
-    rcmd "killall zte-agent 2>/dev/null; sleep 1"
-    info "Pushing zte-agent to device..."
-    rpush "$BINARY" "$REMOTE_BIN"
-    BINARY_CHANGED=true
-    ok "Binary deployed to $REMOTE_BIN."
-fi
-
-# ── Step 5: Create startup script ───────────────────────────────────
-# Escape single quotes for safe embedding in sh single-quoted string
-SAFE_PASSWORD=$(printf '%s' "$AGENT_PASSWORD" | sed "s/'/'\\\\''/g")
-
-rcmd "mkdir -p $(dirname $STARTUP_SCRIPT)"
-# Also require the syslog line, so a script written by an older setup.sh (which
-# redirected into /tmp and grew in RAM forever) gets rewritten rather than kept.
-if rcmd_check "grep -qF '${SAFE_PASSWORD}' $STARTUP_SCRIPT 2>/dev/null && grep -qF 'logger -t zte-agent' $STARTUP_SCRIPT 2>/dev/null"; then
-    ok "Startup script already up to date."
-else
-    info "Creating startup script..."
-    cat > /tmp/start_zte_agent.sh <<BOOT
-#!/bin/sh
-export ZTE_AGENT_PASSWORD='${SAFE_PASSWORD}'
-# Log via syslog (logd's fixed-size ring buffer) rather than a file on /tmp:
-# /tmp is tmpfs, so a plain redirect grows in RAM forever with no rotation.
-# Read it back with: logread -e zte-agent
-nohup sh -c '/data/zte-agent 2>&1 | logger -t zte-agent' >/dev/null 2>&1 </dev/null &
-BOOT
-    rpush /tmp/start_zte_agent.sh "$STARTUP_SCRIPT"
-    rm /tmp/start_zte_agent.sh
-    ok "Startup script created at $STARTUP_SCRIPT."
-fi
-
-# ── Step 6: Update rc.local for boot persistence ────────────────────
-info "Configuring auto-start on boot..."
-RC_LINE="sh $STARTUP_SCRIPT"
-if rcmd_check "grep -qF '$RC_LINE' /etc/rc.local 2>/dev/null"; then
-    ok "rc.local already configured."
-else
-    rcmd "grep -q '^exit 0' /etc/rc.local \
-        && sed -i '/^exit 0/i $RC_LINE' /etc/rc.local \
-        || echo '$RC_LINE' >> /etc/rc.local"
-    ok "Added zte-agent to /etc/rc.local."
-fi
-
-# ── Step 7: Start agent ─────────────────────────────────────────────
-info "Checking agent status..."
-AGENT_RUNNING=false
-TOKEN=""
-if TOKEN=$(agent_login 2>/dev/null); then
-    AGENT_RUNNING=true
-fi
-
-if [ "$BINARY_CHANGED" = true ] || [ "$AGENT_RUNNING" = false ]; then
-    info "Starting zte-agent..."
-    rcmd "killall zte-agent 2>/dev/null; true"
-    sleep 1
-    if [ "$USE_SSH" = true ]; then
-        rcmd "sh $STARTUP_SCRIPT"
-    else
-        adb shell "sh $STARTUP_SCRIPT; sleep 1; pidof zte-agent" | grep -q '[0-9]' \
-            || fail "Agent process did not start. Check 'logread -e zte-agent' on device."
-    fi
-    ok "Agent (re)started."
-else
-    ok "Agent already running with current binary, skipping restart."
-fi
-
-# ── Step 8: Verify ──────────────────────────────────────────────────
-info "Verifying agent is running..."
-sleep 2
-
-if ! TOKEN=$(agent_login); then
-    fail "Agent started but login verification failed."
-fi
-ok "Agent is running and authenticated."
-
-# ── Step 9: SSH for wireless deploys ────────────────────────────────
-# Dropbear install deliberately lives in scripts/zharden.sh, not here:
-# opkg is unusable on this firmware and the old in-setup install pinned a
-# stale package URL and a wrong dropbear path. zharden.sh extracts dropbear
-# to /data, generates host keys and wires up rc.local correctly (and also
-# adds the isolated dashboard server + turns FOTA auto-update off).
-if [ "$USE_SSH" = true ]; then
-    ok "SSH already configured."
-else
-    echo ""
-    info "Next: run 'bash scripts/zharden.sh' to install dropbear SSH,"
-    info "clean up rc.local, serve the dashboard on :8080 and disable"
-    info "FOTA auto-update. Then 'bash deploy-dashboard.sh' to deploy the UI."
-fi
-
-# ── Done ─────────────────────────────────────────────────────────────
-echo ""
-echo -e "${GREEN}Setup complete!${NC}"
-echo ""
-echo "  Agent API:  http://$GATEWAY:$AGENT_PORT"
-echo "  Re-deploy:  ZTE_AGENT_PASSWORD=<your-password> ZTE_AGENT_PIN=<six-digit-pin> ./deploy.sh"
-echo ""
-echo "  Next steps:"
-echo "    1) bash scripts/zharden.sh      # dropbear SSH, rc.local cleanup,"
-echo "                                    # dashboard on :8080, FOTA auto-update off"
-echo "    2) bash deploy-dashboard.sh     # build + push the web UI to /data/www"
-echo ""
-echo "  Point the iOS/Android companion app at http://$GATEWAY:$AGENT_PORT"
+if [ "${ZTE_DRY_RUN:-0}" = 1 ]; then EXTRA+=(--dry-run); fi
+ZTE_AGENT_PASSWORD="$AGENT_PASSWORD" python3 scripts/deploy-components.py \
+    --agent "$BINARY" --harden --bundle "$WORK/packages" --gateway "$GATEWAY" "${EXTRA[@]}"
+ok 'Agent and key-only SSH verified. Run bash deploy-dashboard.sh to install the dashboard.'

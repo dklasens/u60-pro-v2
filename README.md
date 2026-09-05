@@ -60,27 +60,14 @@ Details: [docs/DASHBOARD.md](docs/DASHBOARD.md) (pages, source layout, local
 demo without hardware) and [docs/AGENT.md](docs/AGENT.md) (endpoint
 reference, 57 paths).
 
-## Emulated-device validation
+## Validation
 
-The agent/dashboard contracts and safety-sensitive settings are optimised and
-regression-tested against the stock MU5250 firmware running in QEMU. The
-guarded suite covers optional-service stopping, LAN/DHCP, network modes and
-LTE/NR bands, Wi-Fi 7 EHT bandwidth, unavailable sensor values, manual APNs,
-firmware WMS SMS operations and the read-only AT allowlist. Every mutating
-check restores its original emulated-device state.
-
-Run it after starting the emulator:
-
-```sh
-python3 scripts/test-emulator-fixes.py \
-  --base-url http://127.0.0.1:9090 \
-  --password emu-test-password
-```
-
-QEMU exercises the real firmware userland and UBUS contracts, but cannot
-replace final hardware checks for radios, sensors or the physical modem. See
-[docs/EMULATION.md](docs/EMULATION.md) for the exact fidelity boundaries and
-the native desktop-installer test using gateway `127.0.0.1`.
+Release builds run Rust, dashboard and native-installer checks in GitHub Actions,
+including failure-injection tests for deployment and recovery. The v2.3 changes
+also passed a staged physical deployment with stock service, WAN, SSH and reboot
+checks. See [docs/REMEDIATION.md](docs/REMEDIATION.md) for evidence and remaining
+hardware/platform limits. Firmware emulators and local test environments are not
+included in this repository or release.
 
 ## Quick start
 
@@ -131,7 +118,6 @@ zte-script-ng.js      community-vetted reference of safe ubus calls
 | [docs/AGENT.md](docs/AGENT.md) | agent architecture, endpoint reference, safety constraints |
 | [docs/DASHBOARD.md](docs/DASHBOARD.md) | dashboard pages, source layout, dev + local demo |
 | [docs/SAFETY.md](docs/SAFETY.md) | **read first** — brick-prevention rules, daemon sync barrier, recovery commands, safety audit |
-| [docs/EMULATION.md](docs/EMULATION.md) | boot the stock firmware in QEMU and test the agent/dashboard against it |
 | [docs/reference/](docs/reference/) | device reference material (rpcd ACL dump, USB mode findings) |
 
 ## Safety in one paragraph

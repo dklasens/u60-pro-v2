@@ -1,3 +1,4 @@
+use crate::process::BoundedCommand;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -34,24 +35,33 @@ fn command_status(object: &str, command: u8) -> Result<i64, String> {
 pub fn sms_capabilities(_state: &AppState) -> (u16, Value) {
     let object = wms_object();
     match command_status(&object, 1) {
-        Ok(3) => (200, json!({"ok": true, "data": {
-            "available": true,
-            "ready": true,
-            "object": object,
-            "storage": "native",
-        }})),
-        Ok(status) => (200, json!({"ok": true, "data": {
-            "available": false,
-            "ready": false,
-            "object": object,
-            "reason": format!("WMS is not ready (status {status})"),
-        }})),
-        Err(error) => (200, json!({"ok": true, "data": {
-            "available": false,
-            "ready": false,
-            "object": object,
-            "reason": error,
-        }})),
+        Ok(3) => (
+            200,
+            json!({"ok": true, "data": {
+                "available": true,
+                "ready": true,
+                "object": object,
+                "storage": "native",
+            }}),
+        ),
+        Ok(status) => (
+            200,
+            json!({"ok": true, "data": {
+                "available": false,
+                "ready": false,
+                "object": object,
+                "reason": format!("WMS is not ready (status {status})"),
+            }}),
+        ),
+        Err(error) => (
+            200,
+            json!({"ok": true, "data": {
+                "available": false,
+                "ready": false,
+                "object": object,
+                "reason": error,
+            }}),
+        ),
     }
 }
 
@@ -64,7 +74,10 @@ struct SmsListRequest {
 
 impl Default for SmsListRequest {
     fn default() -> Self {
-        Self { page: 0, per_page: 500 }
+        Self {
+            page: 0,
+            per_page: 500,
+        }
     }
 }
 
@@ -74,11 +87,19 @@ pub fn sms_list(_state: &AppState, body: &[u8]) -> (u16, Value) {
     } else {
         match serde_json::from_slice(body) {
             Ok(value) => value,
-            Err(error) => return (400, json!({"ok": false, "error": format!("invalid SMS list request: {error}")})),
+            Err(error) => {
+                return (
+                    400,
+                    json!({"ok": false, "error": format!("invalid SMS list request: {error}")}),
+                )
+            }
         }
     };
     if request.per_page == 0 || request.per_page > 500 {
-        return (400, json!({"ok": false, "error": "per_page must be between 1 and 500"}));
+        return (
+            400,
+            json!({"ok": false, "error": "per_page must be between 1 and 500"}),
+        );
     }
     let payload = json!({
         "page": request.page,
@@ -87,7 +108,11 @@ pub fn sms_list(_state: &AppState, body: &[u8]) -> (u16, Value) {
         "tags": SMS_ALL_TAGS,
         "order_by": "order by id desc",
     });
-    match ubus::call(&wms_object(), "zte_libwms_get_sms_data", Some(&payload.to_string())) {
+    match ubus::call(
+        &wms_object(),
+        "zte_libwms_get_sms_data",
+        Some(&payload.to_string()),
+    ) {
         Ok(data) => (200, json!({"ok": true, "data": data})),
         Err(error) => (503, json!({"ok": false, "error": error})),
     }
@@ -107,13 +132,19 @@ fn validate_recipient(number: &str) -> Result<(), String> {
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'+' | b'*' | b'#'))
     {
-        return Err("recipient must contain only digits, +, * or # and be at most 32 characters".to_string());
+        return Err(
+            "recipient must contain only digits, +, * or # and be at most 32 characters"
+                .to_string(),
+        );
     }
     Ok(())
 }
 
 fn encode_message(message: &str) -> String {
-    message.chars().map(|character| format!("{:04X}", character as u32)).collect()
+    message
+        .chars()
+        .map(|character| format!("{:04X}", character as u32))
+        .collect()
 }
 
 fn encode_type(message: &str) -> &'static str {
@@ -131,7 +162,7 @@ fn encode_type(message: &str) -> &'static str {
 fn sms_timestamp() -> Result<String, String> {
     let output = Command::new("date")
         .arg("+%y;%m;%d;%H;%M;%S;%z")
-        .output()
+        .bounded_output()
         .map_err(|error| format!("date exec: {error}"))?;
     if !output.status.success() {
         return Err("cannot generate SMS timestamp".to_string());
@@ -144,10 +175,18 @@ fn sms_timestamp() -> Result<String, String> {
         return Err("invalid timezone offset".to_string());
     }
     let sign = &zone[..1];
-    let hours: f64 = zone[1..3].parse::<f64>().map_err(|_| "invalid timezone hours")?;
-    let minutes: f64 = zone[3..5].parse::<f64>().map_err(|_| "invalid timezone minutes")?;
+    let hours: f64 = zone[1..3]
+        .parse::<f64>()
+        .map_err(|_| "invalid timezone hours")?;
+    let minutes: f64 = zone[3..5]
+        .parse::<f64>()
+        .map_err(|_| "invalid timezone minutes")?;
     let offset = hours + minutes / 60.0;
-    let offset = if offset.fract() == 0.0 { format!("{sign}{}", offset as i32) } else { format!("{sign}{offset}") };
+    let offset = if offset.fract() == 0.0 {
+        format!("{sign}{}", offset as i32)
+    } else {
+        format!("{sign}{offset}")
+    };
     Ok(format!("{prefix};{offset}"))
 }
 
@@ -166,14 +205,22 @@ fn wait_for_command(object: &str, command: u8) -> Result<(), String> {
 pub fn sms_send(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let request: SmsSendRequest = match serde_json::from_slice(body) {
         Ok(value) => value,
-        Err(error) => return (400, json!({"ok": false, "error": format!("invalid SMS: {error}")})),
+        Err(error) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid SMS: {error}")}),
+            )
+        }
     };
     if let Err(error) = validate_recipient(&request.number) {
         return (400, json!({"ok": false, "error": error}));
     }
     let length = request.message.chars().count();
     if length == 0 || length > 160 || request.message.chars().any(|character| character == '\0') {
-        return (400, json!({"ok": false, "error": "message must contain 1 to 160 characters"}));
+        return (
+            400,
+            json!({"ok": false, "error": "message must contain 1 to 160 characters"}),
+        );
     }
     let payload = json!({
         "number": request.number,
@@ -211,14 +258,23 @@ fn ids_payload(ids: &[u64]) -> Result<String, String> {
 pub fn sms_delete(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let request: SmsIds = match serde_json::from_slice(body) {
         Ok(value) => value,
-        Err(error) => return (400, json!({"ok": false, "error": format!("invalid SMS ids: {error}")})),
+        Err(error) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid SMS ids: {error}")}),
+            )
+        }
     };
     let ids = match ids_payload(&request.ids) {
         Ok(ids) => ids,
         Err(error) => return (400, json!({"ok": false, "error": error})),
     };
     let object = wms_object();
-    if let Err(error) = ubus::call(&object, "zwrt_wms_delete_sms", Some(&json!({"id": ids}).to_string())) {
+    if let Err(error) = ubus::call(
+        &object,
+        "zwrt_wms_delete_sms",
+        Some(&json!({"id": ids}).to_string()),
+    ) {
         return (503, json!({"ok": false, "error": error}));
     }
     match wait_for_command(&object, 6) {
@@ -230,7 +286,12 @@ pub fn sms_delete(_state: &AppState, body: &[u8]) -> (u16, Value) {
 pub fn sms_mark_read(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let request: SmsIds = match serde_json::from_slice(body) {
         Ok(value) => value,
-        Err(error) => return (400, json!({"ok": false, "error": format!("invalid SMS ids: {error}")})),
+        Err(error) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid SMS ids: {error}")}),
+            )
+        }
     };
     let ids = match ids_payload(&request.ids) {
         Ok(ids) => ids,

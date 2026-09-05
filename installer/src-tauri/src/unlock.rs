@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tar::{Archive, Builder, Header};
 
+use crate::identity::Identity;
 use crate::model::InstallerError;
 
 const INNER: &str = "tmp/back_parameter_r1.tgz";
@@ -347,6 +348,55 @@ fn patch_outer(outer: &[u8], log: &dyn Fn(&str)) -> Result<Vec<u8>, InstallerErr
     ])
 }
 
+fn save_recovery_backup(
+    bytes: &[u8],
+    identity: &Identity,
+) -> Result<std::path::PathBuf, InstallerError> {
+    use std::io::Write;
+    let root = dirs::data_local_dir()
+        .ok_or_else(|| {
+            InstallerError::internal("saving recovery backup", "local data directory unavailable")
+        })?
+        .join("open-u60-pro/recovery");
+    fs::create_dir_all(&root)
+        .map_err(|e| InstallerError::internal("creating recovery directory", e))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
+            .map_err(|e| InstallerError::internal("protecting recovery directory", e))?;
+    }
+    let directory = root.join(uuid::Uuid::new_v4().to_string());
+    fs::create_dir(&directory)
+        .map_err(|e| InstallerError::internal("creating recovery snapshot", e))?;
+    let path = directory.join("back_parameter.orig");
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options
+        .open(&path)
+        .map_err(|e| InstallerError::internal("saving recovery backup", e))?;
+    file.write_all(bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|e| InstallerError::internal("saving recovery backup", e))?;
+    let metadata = json!({"device": identity, "sha256": hex::encode(Sha256::digest(bytes)), "format": "original encrypted firmware backup"});
+    fs::write(
+        directory.join("identity.json"),
+        serde_json::to_vec_pretty(&metadata)
+            .map_err(|e| InstallerError::internal("writing recovery identity", e))?,
+    )
+    .map_err(|e| InstallerError::internal("saving recovery identity", e))?;
+    #[cfg(unix)]
+    fs::File::open(&directory)
+        .and_then(|f| f.sync_all())
+        .map_err(|e| InstallerError::internal("syncing recovery directory", e))?;
+    Ok(path)
+}
+
 pub fn run_unlock(
     gateway: &str,
     router_password: &str,
@@ -354,7 +404,7 @@ pub fn run_unlock(
     dry_run: bool,
     work: &Path,
     log: &dyn Fn(&str),
-) -> Result<(), InstallerError> {
+) -> Result<Identity, InstallerError> {
     fs::create_dir_all(work)
         .map_err(|error| InstallerError::internal("creating unlock workspace", error))?;
     let mut router = Router::new(gateway, router_password)?;
@@ -362,6 +412,9 @@ pub fn run_unlock(
     router.login()?;
 
     let info = router.call("zwrt_web", "device_info", json!({}), None)?;
+    let identity = Identity::from_info(info.pointer("/0/result/1").ok_or_else(|| {
+        InstallerError::internal("device identity", "device_info result missing")
+    })?)?;
     let imei = info
         .pointer("/0/result/1/imei")
         .and_then(Value::as_str)
@@ -399,6 +452,11 @@ pub fn run_unlock(
         encrypted_original.len()
     ));
 
+    let recovery_path = save_recovery_backup(&encrypted_original, &identity)?;
+    log(&format!(
+        "[+] Original encrypted recovery backup retained: {}",
+        recovery_path.display()
+    ));
     let password = format!("{imei}{suffix}");
     log("[*] Decrypting and validating the backup…");
     let outer = decrypt_backup(&encrypted_original, &password)?;
@@ -419,7 +477,7 @@ pub fn run_unlock(
 
     if dry_run {
         log("[+] Dry run complete. Nothing was uploaded and the modem was not changed.");
-        return Ok(());
+        return Ok(identity);
     }
 
     log("[*] Uploading the verified patched backup…");
@@ -451,7 +509,7 @@ pub fn run_unlock(
         ));
     }
     log("[+] Restore accepted. Waiting for the modem to reboot into ADB mode…");
-    Ok(())
+    Ok(identity)
 }
 
 #[cfg(test)]

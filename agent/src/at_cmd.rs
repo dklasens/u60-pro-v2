@@ -55,7 +55,7 @@ impl AtPort {
             }
             if raw_send(port, "AT", 2)
                 .ok()
-                .map_or(false, |r| r.contains("OK"))
+                .is_some_and(|r| r.contains("OK"))
             {
                 *self.state.safe_lock() = PortState::Found(port.to_string());
                 return Some(port.to_string());

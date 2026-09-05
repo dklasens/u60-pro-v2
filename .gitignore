@@ -8,6 +8,11 @@ device_report.json
 ubus_probe_report.json
 node_modules/
 .venv/
+.venv*/
+venv/
+env/
+.env
+.env.*
 __pycache__/
 *.py[cod]
 *.local.json
@@ -22,3 +27,15 @@ installer/src-tauri/gen/schemas/
 build/
 dist/
 *.spec
+
+# Keep emulator tooling, firmware images and local recovery data off GitHub.
+/scripts/emulate.sh
+/scripts/emulator-payload/
+/scripts/test-emulator-*.py
+/docs/EMULATION.md
+*.qcow2
+*.vmdk
+*.vdi
+dashboard-access.json
+deployment-result.json
+back_parameter*

@@ -2177,7 +2177,7 @@ dependencies = [
 
 [[package]]
 name = "mu5250-installer"
-version = "2.2.1"
+version = "2.3.0"
 dependencies = [
  "cbc",
  "cipher",
@@ -2186,6 +2186,7 @@ dependencies = [
  "flate2",
  "hex",
  "md5",
+ "process-runner",
  "rand 0.8.7",
  "reqwest 0.12.28",
  "serde",
@@ -2198,7 +2199,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "uuid",
- "wait-timeout",
 ]
 
 [[package]]
@@ -2872,6 +2872,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "process-runner"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4681,15 +4689,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wait-timeout"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5504,9 +5503,10 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 
 [[package]]
 name = "zte-agent"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "libc",
+ "process-runner",
  "serde",
  "serde_json",
  "sha2",

@@ -1,3 +1,4 @@
+use crate::process::BoundedCommand;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,11 +21,11 @@ use crate::wifi;
 
 /// How long a worker blocks before re-checking whether the listener died.
 /// Also bounds how long a rebuild waits for the other workers to drain.
-const WORKER_POLL: Duration = Duration::from_secs(30);
+const WORKER_POLL: Duration = Duration::from_millis(500);
 const RETRY_MIN: Duration = Duration::from_secs(1);
 const RETRY_MAX: Duration = Duration::from_secs(30);
 
-pub fn start(bind: &str, threads: usize, state: Arc<AppState>) {
+pub fn start(threads: usize, state: Arc<AppState>) {
     // Seed the CPU tracker with a baseline (speed tracker self-seeds)
     state.cpu.seed();
 
@@ -36,13 +37,18 @@ pub fn start(bind: &str, threads: usize, state: Arc<AppState>) {
     // flags it, all workers drain, and we rebuild the listener.
     let mut retry = RETRY_MIN;
     loop {
-        let server = match Server::http(bind) {
+        let bind = state.binding.address();
+        let generation = state.binding.generation.load(Ordering::Acquire);
+        let server = match Server::http(&bind) {
             Ok(s) => {
                 retry = RETRY_MIN;
                 Arc::new(s)
             }
             Err(e) => {
-                eprintln!("[server] bind {bind} failed: {e}; retrying in {}s", retry.as_secs());
+                eprintln!(
+                    "[server] bind {bind} failed: {e}; retrying in {}s",
+                    retry.as_secs()
+                );
                 std::thread::sleep(retry);
                 retry = (retry * 2).min(RETRY_MAX);
                 continue;
@@ -57,6 +63,9 @@ pub fn start(bind: &str, threads: usize, state: Arc<AppState>) {
             let state = Arc::clone(&state);
             let dead = Arc::clone(&dead);
             handles.push(std::thread::spawn(move || loop {
+                if state.binding.generation.load(Ordering::Acquire) != generation {
+                    dead.store(true, Ordering::Relaxed);
+                }
                 if dead.load(Ordering::Relaxed) {
                     return;
                 }
@@ -161,7 +170,11 @@ fn handle_request(mut request: Request, state: &AppState) {
         return;
     }
 
-    let needs_auth = path != "/api/auth/login";
+    // The LAN confirmation nonce authorises only the pending change. It lets
+    // the browser prove connectivity without sending its session bearer token
+    // to a new IP that might already be occupied by another host.
+    let needs_auth =
+        path != "/api/auth/login" && !(method == Method::Post && path == "/api/router/lan/confirm");
     if needs_auth {
         let authorized = request
             .headers()
@@ -206,14 +219,72 @@ fn handle_request(mut request: Request, state: &AppState) {
         }
     }
 
+    if method == Method::Get {
+        let download = match (&method, path.as_str()) {
+            (&Method::Get, "/api/logger/signal/download") => {
+                Some((signal_logger::LOG_PATH, "signal_log.csv"))
+            }
+            (&Method::Get, "/api/logger/connection/download") => {
+                Some((connection_logger::LOG_PATH, "connection_log.csv"))
+            }
+            _ => None,
+        };
+        if let Some((path, name)) = download {
+            match crate::logging::open_download(path) {
+                Ok((file, len)) => {
+                    use std::io::Read;
+                    let mut response = Response::new(
+                        tiny_http::StatusCode(200),
+                        vec![],
+                        file.take(len),
+                        Some(len as usize),
+                        None,
+                    )
+                    .with_header(
+                        Header::from_bytes("Content-Type", "text/csv; charset=utf-8").unwrap(),
+                    )
+                    .with_header(
+                        Header::from_bytes(
+                            "Content-Disposition",
+                            format!("attachment; filename=\"{name}\""),
+                        )
+                        .unwrap(),
+                    )
+                    .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
+                    for header in cors_headers(origin_ref) {
+                        response = response.with_header(header);
+                    }
+                    let _ = request.respond(response);
+                }
+                Err(_) => respond(
+                    request,
+                    404,
+                    json!({"ok": false, "error": "no readable log file"}),
+                    origin_ref,
+                ),
+            }
+            return;
+        }
+    }
+
     let mut body = Vec::new();
     let mut reader = request.as_reader();
-    let mut limited = std::io::Read::take(&mut reader, 1024 * 1024);
+    let mut limited = std::io::Read::take(&mut reader, 1024 * 1024 + 1);
     if let Err(e) = std::io::Read::read_to_end(&mut limited, &mut body) {
         respond(
             request,
             400,
             json!({"ok": false, "error": format!("failed to read body: {e}")}),
+            origin_ref,
+        );
+        return;
+    }
+
+    if body.len() > 1024 * 1024 {
+        respond(
+            request,
+            413,
+            json!({"ok": false, "error": "request body exceeds 1 MiB"}),
             origin_ref,
         );
         return;
@@ -283,6 +354,7 @@ pub fn route(
         (&Method::Put, "/api/router/dns") => router::router_dns_set(state, body),
         (&Method::Get, "/api/router/lan") => router::router_lan_get(state),
         (&Method::Put, "/api/router/lan") => router::router_lan_set(state, body),
+        (&Method::Post, "/api/router/lan/confirm") => router::router_lan_confirm(state, body),
         (&Method::Get, "/api/router/apn/mode") => router::router_apn_mode_get(state),
         (&Method::Put, "/api/router/apn/mode") => router::router_apn_mode_set(state, body),
         (&Method::Get, "/api/router/apn/profiles") => router::router_apn_profiles_get(state),
@@ -309,14 +381,12 @@ pub fn route(
         (&Method::Post, "/api/logger/signal/start") => signal_logger::start_logging(state, body),
         (&Method::Post, "/api/logger/signal/stop") => signal_logger::stop_logging(state),
         (&Method::Get, "/api/logger/signal/status") => signal_logger::status(state),
-        (&Method::Get, "/api/logger/signal/download") => signal_logger::download(state),
         // Connection logger
         (&Method::Post, "/api/logger/connection/start") => {
             connection_logger::start_logging(state, body)
         }
         (&Method::Post, "/api/logger/connection/stop") => connection_logger::stop_logging(state),
         (&Method::Get, "/api/logger/connection/status") => connection_logger::status(state),
-        (&Method::Get, "/api/logger/connection/download") => connection_logger::download(state),
         // Fallback
         _ => (404, json!({"ok": false, "error": "not found"})),
     }
@@ -418,10 +488,10 @@ fn at_port(state: &AppState) -> (u16, Value) {
 fn ttl_status() -> (u16, Value) {
     let ipv4 = std::process::Command::new("iptables")
         .args(["-t", "mangle", "-L", "PREROUTING", "-n"])
-        .output();
+        .bounded_output();
     let ipv6 = std::process::Command::new("ip6tables")
         .args(["-t", "mangle", "-L", "PREROUTING", "-n"])
-        .output();
+        .bounded_output();
     let mut active = false;
     let mut ttl_value: u32 = 0;
     if let Ok(out) = &ipv4 {
@@ -467,16 +537,16 @@ fn ttl_set(body: &[u8]) -> (u16, Value) {
         Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
     };
     let ttl = match val.get("ttl").and_then(|v| v.as_u64()) {
-        Some(v) if v >= 1 && v <= 255 => v as u32,
+        Some(v) if (1..=255).contains(&v) => v as u32,
         _ => return (400, json!({"ok": false, "error": "ttl must be 1-255"})),
     };
     // Clear existing rules first
     let _ = std::process::Command::new("sh").args(["-c",
         "iptables -t mangle -S PREROUTING 2>/dev/null | grep 'TTL --ttl-set' | while read -r rule; do iptables -t mangle $(echo \"$rule\" | sed 's/-A/-D/'); done"
-    ]).output();
+    ]).bounded_output();
     let _ = std::process::Command::new("sh").args(["-c",
         "ip6tables -t mangle -S PREROUTING 2>/dev/null | grep 'HL --hl-set' | while read -r rule; do ip6tables -t mangle $(echo \"$rule\" | sed 's/-A/-D/'); done"
-    ]).output();
+    ]).bounded_output();
     // Add new rules
     let r4 = std::process::Command::new("iptables")
         .args([
@@ -491,7 +561,7 @@ fn ttl_set(body: &[u8]) -> (u16, Value) {
             "--ttl-set",
             &ttl.to_string(),
         ])
-        .output();
+        .bounded_output();
     let r6 = std::process::Command::new("ip6tables")
         .args([
             "-t",
@@ -505,7 +575,7 @@ fn ttl_set(body: &[u8]) -> (u16, Value) {
             "--hl-set",
             &ttl.to_string(),
         ])
-        .output();
+        .bounded_output();
     let ok4 = r4.map(|o| o.status.success()).unwrap_or(false);
     let ok6 = r6.map(|o| o.status.success()).unwrap_or(false);
     // Persist to start_ttl.sh
@@ -529,10 +599,10 @@ fn ttl_set(body: &[u8]) -> (u16, Value) {
 fn ttl_clear() -> (u16, Value) {
     let _ = std::process::Command::new("sh").args(["-c",
         "iptables -t mangle -S PREROUTING 2>/dev/null | grep 'TTL --ttl-set' | while read -r rule; do iptables -t mangle $(echo \"$rule\" | sed 's/-A/-D/'); done"
-    ]).output();
+    ]).bounded_output();
     let _ = std::process::Command::new("sh").args(["-c",
         "ip6tables -t mangle -S PREROUTING 2>/dev/null | grep 'HL --hl-set' | while read -r rule; do ip6tables -t mangle $(echo \"$rule\" | sed 's/-A/-D/'); done"
-    ]).output();
+    ]).bounded_output();
     // Remove persistence script content (keep file but make it a no-op)
     let _ = std::fs::write(
         "/data/local/tmp/start_ttl.sh",

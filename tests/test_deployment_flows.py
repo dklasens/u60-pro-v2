@@ -14,108 +14,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DeploymentFlowTests(unittest.TestCase):
-    def test_zharden_does_not_trust_local_adb_success(self):
+    def test_hardening_download_failure_never_reaches_transport(self):
         with tempfile.TemporaryDirectory() as temp:
-            temp_path = Path(temp)
-            bin_dir = temp_path / "bin"
-            bin_dir.mkdir()
+            directory = Path(temp)
+            for command in ['adb', 'ssh']:
+                stub = directory / command
+                stub.write_text('#!/bin/sh\ntouch "$TOUCHED"\nexit 0\n')
+                stub.chmod(0o700)
+            curl = directory / 'curl'
+            curl.write_text('#!/bin/sh\nexit 22\n'); curl.chmod(0o700)
+            touched = directory / 'contacted-device'
+            env = {**os.environ, 'PATH': f"{directory}:{os.environ['PATH']}", 'TOUCHED': str(touched)}
+            result = subprocess.run(['bash', 'scripts/zharden.sh'], cwd=ROOT, env=env, capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(touched.exists(), 'Download failure must precede any modem command')
 
-            adb = bin_dir / "adb"
-            adb.write_text(
-                "#!/bin/sh\n"
-                "if [ \"$1\" = devices ]; then printf 'List of devices attached\\nserial\\tdevice\\n'; fi\n"
-                "exit 0\n"
-            )
-            adb.chmod(adb.stat().st_mode | stat.S_IXUSR)
-
-            curl = bin_dir / "curl"
-            curl.write_text("#!/bin/sh\nexit 22\n")
-            curl.chmod(curl.stat().st_mode | stat.S_IXUSR)
-
-            env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
-            env["HOME"] = temp
-            result = subprocess.run(
-                ["/bin/bash", "scripts/zharden.sh"],
-                cwd=ROOT,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("installing dropbear", result.stdout)
-        self.assertNotIn("dropbear already installed", result.stdout)
-
-    def test_zharden_stops_when_remote_dropbear_extract_fails(self):
-        with tempfile.TemporaryDirectory() as temp:
-            temp_path = Path(temp)
-            bin_dir = temp_path / "bin"
-            bin_dir.mkdir()
-
-            inner = io.BytesIO()
-            with tarfile.open(fileobj=inner, mode="w:gz"):
-                pass
-            ipk = temp_path / "dropbear.ipk"
-            with tarfile.open(ipk, mode="w:gz") as archive:
-                info = tarfile.TarInfo("data.tar.gz")
-                info.size = len(inner.getvalue())
-                archive.addfile(info, io.BytesIO(inner.getvalue()))
-
-            adb = bin_dir / "adb"
-            adb.write_text(
-                "#!/bin/sh\n"
-                "if [ \"$1\" = devices ]; then printf 'List of devices attached\\nserial\\tdevice\\n'; fi\n"
-                "exit 0\n"
-            )
-            adb.chmod(adb.stat().st_mode | stat.S_IXUSR)
-
-            curl = bin_dir / "curl"
-            curl.write_text(
-                "#!/bin/sh\n"
-                "while [ \"$#\" -gt 0 ]; do\n"
-                "  if [ \"$1\" = -o ]; then cp \"$FAKE_IPK\" \"$2\"; exit; fi\n"
-                "  shift\n"
-                "done\n"
-                "exit 2\n"
-            )
-            curl.chmod(curl.stat().st_mode | stat.S_IXUSR)
-
-            env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:{env['PATH']}"
-            env["HOME"] = temp
-            env["FAKE_IPK"] = str(ipk)
-            result = subprocess.run(
-                ["/bin/bash", "scripts/zharden.sh"],
-                cwd=ROOT,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("installing dropbear", result.stdout)
-        self.assertNotIn("dropbear installed (", result.stdout)
-
-    def test_shell_flows_use_device_local_verification(self):
-        setup = (ROOT / "setup.sh").read_text()
-        harden = (ROOT / "scripts" / "zharden.sh").read_text()
-        dashboard = (ROOT / "deploy-dashboard.sh").read_text()
-
-        self.assertNotIn("adb forward tcp:19090", setup)
-        self.assertIn("/usr/bin/curl", setup)
-        self.assertLess(
-            harden.index("mkdir -p /data/www"),
-            harden.index("/etc/init.d/uhttpd restart"),
-        )
-        self.assertIn("/data/bin/dashboard-uhttpd", harden)
-        self.assertIn("start_dashboard.sh", harden)
-        self.assertIn("uci -q delete uhttpd.dashboard", harden)
-        self.assertIn("sh /data/local/tmp/start_dashboard.sh", dashboard)
-        self.assertNotIn("restart 2>/dev/null; true", harden)
-        self.assertLess(dashboard.index("npm ci"), dashboard.index("npm run build"))
+    def test_shell_wrappers_share_the_verified_transaction_path(self):
+        for file in ['setup.sh', 'deploy.sh', 'deploy-dashboard.sh', 'scripts/zharden.sh']:
+            with self.subTest(file=file):
+                self.assertIn('scripts/deploy-components.py', (ROOT / file).read_text())
+        dashboard = (ROOT / 'deploy-dashboard.sh').read_text()
+        self.assertLess(dashboard.index('npm ci'), dashboard.index('npm run build'))
+        setup = (ROOT / 'setup.sh').read_text()
+        self.assertLess(setup.index('"${PREPARE[@]}"'), setup.index('python3 scripts/zunlock.py'))
 
     def test_tauri_installer_preserves_deployment_guards(self):
         deploy = (ROOT / "installer" / "src-tauri" / "src" / "deploy.rs").read_text()

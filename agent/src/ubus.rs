@@ -1,3 +1,4 @@
+use crate::process::BoundedCommand;
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -10,7 +11,9 @@ pub fn call(object: &str, method: &str, params: Option<&str>) -> Result<Value, S
     if let Some(p) = params {
         cmd.arg(p);
     }
-    let output = cmd.output().map_err(|e| format!("ubus exec: {e}"))?;
+    let output = cmd
+        .bounded_output()
+        .map_err(|e| format!("ubus exec: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stderr = match stderr.find("\nUsage:") {
@@ -36,7 +39,7 @@ pub fn call(object: &str, method: &str, params: Option<&str>) -> Result<Value, S
 /// One subprocess instead of one per key. `wifi_status` used to issue ~28
 /// separate `uci get` calls, each a fork+exec, to build a single response.
 pub fn uci_show(config: &str) -> HashMap<String, String> {
-    let output = match Command::new("uci").args(["show", config]).output() {
+    let output = match Command::new("uci").args(["show", config]).bounded_output() {
         Ok(o) if o.status.success() => o,
         _ => return HashMap::new(),
     };
@@ -74,7 +77,7 @@ fn uci_unquote(raw: &str) -> String {
 pub fn uci_get(key: &str) -> Result<String, String> {
     let output = Command::new("uci")
         .args(["get", key])
-        .output()
+        .bounded_output()
         .map_err(|e| format!("uci exec: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -95,12 +98,27 @@ pub fn uci_set(key: &str, value: &str) -> Result<(), String> {
 pub fn uci_set_no_commit(key: &str, value: &str) -> Result<(), String> {
     let set_out = Command::new("uci")
         .args(["set", &format!("{key}={value}")])
-        .output()
+        .bounded_output()
         .map_err(|e| format!("uci set: {e}"))?;
     if !set_out.status.success() {
         return Err(format!(
             "uci set {key}: {}",
             String::from_utf8_lossy(&set_out.stderr)
+        ));
+    }
+    Ok(())
+}
+
+/// Run `uci commit <config>`.
+pub fn uci_commit(config: &str) -> Result<(), String> {
+    let commit_out = Command::new("uci")
+        .args(["commit", config])
+        .bounded_output()
+        .map_err(|e| format!("uci commit: {e}"))?;
+    if !commit_out.status.success() {
+        return Err(format!(
+            "uci commit {config}: {}",
+            String::from_utf8_lossy(&commit_out.stderr)
         ));
     }
     Ok(())
@@ -130,19 +148,4 @@ mod tests {
     fn preserves_other_shell_metacharacters() {
         assert_eq!(uci_unquote(r#"'Pass$w0rd|<>&`"'"#), r#"Pass$w0rd|<>&`""#);
     }
-}
-
-/// Run `uci commit <config>`.
-pub fn uci_commit(config: &str) -> Result<(), String> {
-    let commit_out = Command::new("uci")
-        .args(["commit", config])
-        .output()
-        .map_err(|e| format!("uci commit: {e}"))?;
-    if !commit_out.status.success() {
-        return Err(format!(
-            "uci commit {config}: {}",
-            String::from_utf8_lossy(&commit_out.stderr)
-        ));
-    }
-    Ok(())
 }

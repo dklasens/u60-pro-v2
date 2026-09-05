@@ -109,7 +109,7 @@ fn read_cpu_samples() -> Vec<CpuSample> {
     let mut samples = Vec::new();
     for line in content.lines() {
         // Match "cpu0", "cpu1", etc. but not the aggregate "cpu " line
-        if line.starts_with("cpu") && line.as_bytes().get(3).map_or(false, |b| b.is_ascii_digit()) {
+        if line.starts_with("cpu") && line.as_bytes().get(3).is_some_and(|b| b.is_ascii_digit()) {
             let parts: Vec<u64> = line
                 .split_whitespace()
                 .skip(1)
@@ -877,14 +877,14 @@ mod tests {
 
     #[test]
     fn optional_daemon_must_not_cross_firmware_barrier() {
-        let protected = HashSet::from([
-            "zte_topsw_diag".to_string(),
-            "zte_topsw_wms".to_string(),
-        ]);
+        let protected = HashSet::from(["zte_topsw_diag".to_string(), "zte_topsw_wms".to_string()]);
         assert!(!is_safe_optional_daemon("zte_topsw_diag", &protected));
         assert!(!is_safe_optional_daemon("zte_topsw_wms", &protected));
         assert!(is_safe_optional_daemon("zte_topsw_samba", &protected));
-        assert!(!is_safe_optional_daemon("zte_topsw_fota_result", &protected));
+        assert!(!is_safe_optional_daemon(
+            "zte_topsw_fota_result",
+            &protected
+        ));
         assert!(!is_safe_optional_daemon("zte_smart_manage", &protected));
     }
 }

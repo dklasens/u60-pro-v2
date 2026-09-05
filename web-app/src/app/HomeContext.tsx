@@ -37,6 +37,13 @@ export function deriveAlerts(data: HomeData | null): Alert[] {
   if (!data) return []
   const alerts: Alert[] = []
   const { battery, thermal } = data
+  for (const [source, freshness] of Object.entries(data.sources ?? {})) {
+    if (freshness.stale) {
+      const age = freshness.age_ms == null ? 'no successful reading' : `last reading ${Math.floor(freshness.age_ms / 1000)}s ago`
+      alerts.push({ level: 'warning', message: `${source.replaceAll('_', ' ')} unavailable: ${age}${freshness.error ? `. ${freshness.error}` : ''}` })
+    }
+  }
+  if (data.charge_control_error) alerts.push({ level: 'error', message: `Charge control: ${data.charge_control_error}` })
 
   if (battery) {
     const temp = battery.temperature_c
@@ -66,6 +73,9 @@ export function deriveAlerts(data: HomeData | null): Alert[] {
 }
 
 export function useAlerts(): Alert[] {
-  const { data } = useHome()
-  return useMemo(() => deriveAlerts(data), [data])
+  const { data, error } = useHome()
+  return useMemo(() => [
+    ...(error ? [{ level: 'error' as const, message: `Dashboard refresh failed; displayed readings may be old. ${error}` }] : []),
+    ...deriveAlerts(data),
+  ], [data, error])
 }

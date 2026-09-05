@@ -240,6 +240,7 @@ export interface BatteryDetail {
 }
 
 export interface ChargeControlState {
+  last_error?: string | null
   available: boolean
   battery_available: boolean
   charger_available: boolean
@@ -342,6 +343,9 @@ export interface KillBloatResult {
 }
 
 export interface LoggerStatus {
+  last_error?: string | null
+  max_bytes?: number
+  flush_interval_secs?: number
   running: boolean
   samples?: number
   events?: number
@@ -368,7 +372,16 @@ export interface AtSendResult {
 }
 
 /** One merged poll of /api/dashboard — the home screen's single request. */
+export interface SourceFreshness {
+  sampled_at_ms: number | null
+  age_ms: number | null
+  ttl_ms: number
+  stale: boolean
+  error: string | null
+}
 export interface HomeData {
+  sources?: Record<string, SourceFreshness>
+  charge_control_error?: string | null
   signal: SignalInfo | null
   battery: BatteryInfo | null
   speed: SpeedInfo | null

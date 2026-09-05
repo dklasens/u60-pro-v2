@@ -1,3 +1,4 @@
+use crate::process::BoundedCommand;
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -5,6 +6,8 @@ use serde_json::{json, Value};
 
 use crate::handlers::AppState;
 use crate::ubus;
+use crate::uci_transaction::{self, Change};
+use crate::util::MutexExt;
 
 const WIFI_ONOFF_KEY: &str = "wifi_onoff";
 const WIFI6_SWITCH_KEY: &str = "wifi6_switch";
@@ -52,7 +55,10 @@ fn report_value(report: Option<&Value>, key: &str) -> String {
 }
 
 fn iw_info(iface: &str) -> (String, String) {
-    let output = Command::new("iw").args([iface, "info"]).output().ok();
+    let output = Command::new("iw")
+        .args([iface, "info"])
+        .bounded_output()
+        .ok();
     let out = output
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
@@ -86,42 +92,16 @@ fn iw_info(iface: &str) -> (String, String) {
 /// Count associated stations. Calls `iw` directly and counts in Rust — the
 /// old `sh -c "iw ... | grep -c Station"` spawned three processes per band.
 fn station_count(iface: &str) -> u64 {
-    let Ok(output) = Command::new("iw").args([iface, "station", "dump"]).output() else {
+    let Ok(output) = Command::new("iw")
+        .args([iface, "station", "dump"])
+        .bounded_output()
+    else {
         return 0;
     };
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter(|l| l.trim_start().starts_with("Station "))
         .count() as u64
-}
-
-fn sanitize_uci_value(v: &str) -> String {
-    v.chars()
-        .filter(|c| {
-            !matches!(
-                c,
-                '\'' | '"' | ';' | '$' | '`' | '\\' | '|' | '<' | '>' | '&'
-            )
-        })
-        .collect()
-}
-
-fn reload_wireless() -> Result<(), String> {
-    ubus::call("zwrt_wlan", "reload", Some("{}")).map(|_| ())
-}
-
-fn sanitize_wifi_key_value(v: &str) -> String {
-    // Keep Wi-Fi passphrases intact except for control chars that can corrupt UCI entries.
-    v.chars()
-        .filter(|c| !matches!(c, '\u{0000}' | '\n' | '\r'))
-        .collect()
-}
-
-fn sanitize_wifi_input_value(key: &str, v: &str) -> String {
-    match key {
-        "key_2g" | "key_5g" | "guest_key" => sanitize_wifi_key_value(v),
-        _ => sanitize_uci_value(v),
-    }
 }
 
 fn bandwidth_options(hwmode: &str, standards: &str, is_5g: bool) -> Vec<String> {
@@ -141,7 +121,10 @@ fn bandwidth_options(hwmode: &str, standards: &str, is_5g: bool) -> Vec<String> 
         "HT"
     };
     let widths: &[u16] = if is_5g { &[20, 40, 80, 160] } else { &[20, 40] };
-    widths.iter().map(|width| format!("{prefix}{width}")).collect()
+    widths
+        .iter()
+        .map(|width| format!("{prefix}{width}"))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -176,30 +159,12 @@ pub fn wifi_status(_state: &AppState) -> (u16, Value) {
     result.insert("wifi6_supported".into(), json!(wifi6_supported));
 
     // Radio config
-    result.insert(
-        "radio2_disabled".into(),
-        json!(cfg.get("wifi0.disabled")),
-    );
-    result.insert(
-        "radio5_disabled".into(),
-        json!(cfg.get("wifi1.disabled")),
-    );
-    result.insert(
-        "channel_2g".into(),
-        json!(cfg.get("wifi0.channel")),
-    );
-    result.insert(
-        "channel_5g".into(),
-        json!(cfg.get("wifi1.channel")),
-    );
-    result.insert(
-        "txpower_2g".into(),
-        json!(cfg.get("wifi0.txpowerpercent")),
-    );
-    result.insert(
-        "txpower_5g".into(),
-        json!(cfg.get("wifi1.txpowerpercent")),
-    );
+    result.insert("radio2_disabled".into(), json!(cfg.get("wifi0.disabled")));
+    result.insert("radio5_disabled".into(), json!(cfg.get("wifi1.disabled")));
+    result.insert("channel_2g".into(), json!(cfg.get("wifi0.channel")));
+    result.insert("channel_5g".into(), json!(cfg.get("wifi1.channel")));
+    result.insert("txpower_2g".into(), json!(cfg.get("wifi0.txpowerpercent")));
+    result.insert("txpower_5g".into(), json!(cfg.get("wifi1.txpowerpercent")));
     result.insert("htmode_2g".into(), json!(cfg.get("wifi0.htmode")));
     result.insert("htmode_5g".into(), json!(cfg.get("wifi1.htmode")));
     let hwmode_2g = cfg.get("wifi0.hwmode");
@@ -220,13 +185,12 @@ pub fn wifi_status(_state: &AppState) -> (u16, Value) {
     );
     result.insert(
         "wifi7_supported".into(),
-        json!(standards_2g.split(',').any(|s| s.trim() == "be")
-            || standards_5g.split(',').any(|s| s.trim() == "be")),
+        json!(
+            standards_2g.split(',').any(|s| s.trim() == "be")
+                || standards_5g.split(',').any(|s| s.trim() == "be")
+        ),
     );
-    result.insert(
-        "country_code".into(),
-        json!(cfg.get("wifi0.country")),
-    );
+    result.insert("country_code".into(), json!(cfg.get("wifi0.country")));
 
     // Interface config
     result.insert("ssid_2g".into(), json!(cfg.get("main_2g.ssid")));
@@ -241,22 +205,10 @@ pub fn wifi_status(_state: &AppState) -> (u16, Value) {
         "has_key_5g".into(),
         json!(!cfg.get("main_5g.key").is_empty()),
     );
-    result.insert(
-        "encryption_2g".into(),
-        json!(cfg.get("main_2g.encryption")),
-    );
-    result.insert(
-        "encryption_5g".into(),
-        json!(cfg.get("main_5g.encryption")),
-    );
-    result.insert(
-        "hidden_2g".into(),
-        json!(cfg.get("main_2g.hidden")),
-    );
-    result.insert(
-        "hidden_5g".into(),
-        json!(cfg.get("main_5g.hidden")),
-    );
+    result.insert("encryption_2g".into(), json!(cfg.get("main_2g.encryption")));
+    result.insert("encryption_5g".into(), json!(cfg.get("main_5g.encryption")));
+    result.insert("hidden_2g".into(), json!(cfg.get("main_2g.hidden")));
+    result.insert("hidden_5g".into(), json!(cfg.get("main_5g.hidden")));
 
     // Runtime info from iw
     let (ch2, bw2) = iw_info("wlan0");
@@ -282,10 +234,7 @@ pub fn wifi_status(_state: &AppState) -> (u16, Value) {
         "guest_disabled_5g".into(),
         json!(cfg.get("guest_5g.disabled")),
     );
-    result.insert(
-        "guest_ssid".into(),
-        json!(cfg.get("guest_2g.ssid")),
-    );
+    result.insert("guest_ssid".into(), json!(cfg.get("guest_2g.ssid")));
 
     (200, json!({"ok": true, "data": result}))
 }
@@ -294,255 +243,253 @@ pub fn wifi_status(_state: &AppState) -> (u16, Value) {
 // PUT /api/wifi/settings
 // ---------------------------------------------------------------------------
 
+const WIFI_FIELDS: &[(&str, &str)] = &[
+    ("ssid_2g", "wireless.main_2g.ssid"),
+    ("ssid_5g", "wireless.main_5g.ssid"),
+    ("key_2g", "wireless.main_2g.key"), // gitleaks:allow -- UCI option path, not a credential.
+    ("key_5g", "wireless.main_5g.key"), // gitleaks:allow -- UCI option path, not a credential.
+    ("encryption_2g", "wireless.main_2g.encryption"),
+    ("encryption_5g", "wireless.main_5g.encryption"),
+    ("hidden_2g", "wireless.main_2g.hidden"),
+    ("hidden_5g", "wireless.main_5g.hidden"),
+    ("channel_2g", "wireless.wifi0.channel"),
+    ("channel_5g", "wireless.wifi1.channel"),
+    ("txpower_2g", "wireless.wifi0.txpowerpercent"),
+    ("txpower_5g", "wireless.wifi1.txpowerpercent"),
+    ("htmode_2g", "wireless.wifi0.htmode"),
+    ("htmode_5g", "wireless.wifi1.htmode"),
+    ("radio2_disabled", "wireless.wifi0.disabled"),
+    ("radio5_disabled", "wireless.wifi1.disabled"),
+];
+
+fn wifi_value(key: &str, value: &Value, cfg: &WifiConfig) -> Result<String, String> {
+    let text = match value {
+        Value::String(s) => s.clone(),
+        Value::Bool(v) => if *v { "1" } else { "0" }.into(),
+        Value::Number(n) if n.as_u64().is_some() => n.to_string(),
+        _ => return Err(format!("{key} has an invalid type")),
+    };
+    if text.chars().any(char::is_control) {
+        return Err(format!("{key} contains a control character"));
+    }
+    let valid = if key.starts_with("ssid_") {
+        // Reject unsupported shell metacharacters explicitly instead of silently
+        // renaming the SSID. Firmware downstream handling is not shell-audited.
+        (1..=32).contains(&text.len())
+            && !text.chars().any(|c| {
+                matches!(
+                    c,
+                    '\'' | '"' | ';' | '$' | '`' | '\\' | '|' | '<' | '>' | '&'
+                )
+            })
+    } else if key.starts_with("key_") {
+        (8..=63).contains(&text.len())
+            || (text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit()))
+    } else if key.starts_with("encryption_") {
+        [
+            "none",
+            "psk2",
+            "psk2+ccmp",
+            "psk2+aes",
+            "psk3",
+            "psk3-mixed",
+            "sae",
+            "sae-mixed",
+        ]
+        .contains(&text.as_str())
+    } else if key.starts_with("txpower_") {
+        text.parse::<u8>().is_ok_and(|n| (1..=100).contains(&n))
+    } else if key.starts_with("channel_") {
+        text == "auto"
+            || text == "0"
+            || text.parse::<u16>().is_ok_and(|n| {
+                if key.ends_with("2g") {
+                    (1..=13).contains(&n)
+                } else {
+                    [
+                        36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128,
+                        132, 136, 140, 144, 149, 153, 157, 161, 165,
+                    ]
+                    .contains(&n)
+                }
+            })
+    } else if key.starts_with("htmode_") {
+        let radio = if key.ends_with("2g") {
+            "wifi0"
+        } else {
+            "wifi1"
+        };
+        bandwidth_options(
+            &cfg.get(&format!("{radio}.hwmode")),
+            &cfg.get(&format!("{radio}.SupportedStandards")),
+            key.ends_with("5g"),
+        )
+        .contains(&text)
+    } else {
+        text == "0" || text == "1"
+    };
+    if valid {
+        Ok(text)
+    } else {
+        Err(format!("{key} is outside the supported values"))
+    }
+}
+
+fn plan_wifi(parsed: &Value, cfg: &WifiConfig) -> Result<Vec<Change>, String> {
+    let obj = parsed
+        .as_object()
+        .ok_or("expected a Wi-Fi settings object")?;
+    if obj.is_empty() || obj.len() > WIFI_FIELDS.len() + 2 {
+        return Err("empty or oversized Wi-Fi update".into());
+    }
+    let mut changes = Vec::new();
+    for (key, value) in obj {
+        let mut paths = Vec::new();
+        if key == WIFI_ONOFF_KEY || key == WIFI6_SWITCH_KEY {
+            for path in [
+                format!("wireless.zte_mbb.{key}"),
+                format!("zte_mbb.wifi.{key}"),
+            ] {
+                let (config, tail) = path.split_once('.').unwrap();
+                if (if config == "wireless" {
+                    &cfg.wireless
+                } else {
+                    &cfg.mbb
+                })
+                .contains_key(tail)
+                {
+                    paths.push(path);
+                }
+            }
+            if key == WIFI_ONOFF_KEY && cfg.wireless.contains_key("zte_mbb.wifi_onoff_by_user") {
+                paths.push("wireless.zte_mbb.wifi_onoff_by_user".into());
+            }
+        } else {
+            paths.push(
+                WIFI_FIELDS
+                    .iter()
+                    .find(|(name, _)| name == key)
+                    .ok_or_else(|| format!("unknown Wi-Fi setting: {key}"))?
+                    .1
+                    .into(),
+            );
+        }
+        if paths.is_empty() {
+            return Err(format!("{key} is not supported by this firmware"));
+        }
+        if key.starts_with("key_") && value.as_str() == Some("••••••••") {
+            continue;
+        }
+        let after = wifi_value(key, value, cfg)?;
+        for path in paths {
+            let (config, tail) = path.split_once('.').unwrap();
+            let before = (if config == "wireless" {
+                &cfg.wireless
+            } else {
+                &cfg.mbb
+            })
+            .get(tail)
+            .ok_or_else(|| format!("{key} is unavailable on this firmware"))?;
+            if before != &after {
+                changes.push(Change {
+                    key: path.clone(),
+                    before: before.clone(),
+                    after: after.clone(),
+                });
+            }
+        }
+    }
+    for suffix in ["2g", "5g"] {
+        if obj.contains_key(&format!("encryption_{suffix}"))
+            || obj.contains_key(&format!("key_{suffix}"))
+        {
+            let effective = |field: &str| {
+                let path = format!("wireless.main_{suffix}.{field}");
+                changes
+                    .iter()
+                    .find(|c| c.key == path)
+                    .map(|c| c.after.clone())
+                    .unwrap_or_else(|| cfg.get(&format!("main_{suffix}.{field}")))
+            };
+            if effective("encryption") != "none" {
+                wifi_value(
+                    &format!("key_{suffix}"),
+                    &Value::String(effective("key")),
+                    cfg,
+                )?;
+            }
+        }
+    }
+    Ok(changes)
+}
+
 pub fn wifi_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: Value = match serde_json::from_slice(body) {
-        Ok(v) => v,
-        Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid Wi-Fi settings: {error}")}),
+            )
+        }
     };
-    let obj = match parsed.as_object() {
-        Some(o) => o,
-        None => return (400, json!({"ok": false, "error": "expected JSON object"})),
+    let _guard = uci_transaction::WIFI_CHANGE.safe_lock();
+    let changes = match plan_wifi(&parsed, &WifiConfig::load()) {
+        Ok(changes) => changes,
+        Err(error) => return (400, json!({"ok": false, "error": error})),
     };
-    let cfg = WifiConfig::load();
-    for (key, value) in obj {
-        if key == "htmode_2g" || key == "htmode_5g" {
-            let Some(value) = value.as_str() else {
-                return (400, json!({"ok": false, "error": format!("{key} must be a string")}));
-            };
-            let is_5g = key == "htmode_5g";
-            let options = if is_5g {
-                bandwidth_options(&cfg.get("wifi1.hwmode"), &cfg.get("wifi1.SupportedStandards"), true)
-            } else {
-                bandwidth_options(&cfg.get("wifi0.hwmode"), &cfg.get("wifi0.SupportedStandards"), false)
-            };
-            if !options.iter().any(|option| option == value) {
-                return (400, json!({"ok": false, "error": format!("{value} is not supported by this radio; allowed values: {}", options.join(", "))}));
-            }
-        }
-    }
-
-    let uci_map: &[(&str, &str)] = &[
-        ("ssid_2g", "wireless.main_2g.ssid"),
-        ("ssid_5g", "wireless.main_5g.ssid"),
-        ("key_2g", "wireless.main_2g.key"),
-        ("key_5g", "wireless.main_5g.key"),
-        ("encryption_2g", "wireless.main_2g.encryption"),
-        ("encryption_5g", "wireless.main_5g.encryption"),
-        ("hidden_2g", "wireless.main_2g.hidden"),
-        ("hidden_5g", "wireless.main_5g.hidden"),
-        ("channel_2g", "wireless.wifi0.channel"),
-        ("channel_5g", "wireless.wifi1.channel"),
-        ("txpower_2g", "wireless.wifi0.txpowerpercent"),
-        ("txpower_5g", "wireless.wifi1.txpowerpercent"),
-        ("htmode_2g", "wireless.wifi0.htmode"),
-        ("htmode_5g", "wireless.wifi1.htmode"),
-        ("radio2_disabled", "wireless.wifi0.disabled"),
-        ("radio5_disabled", "wireless.wifi1.disabled"),
-    ];
-    let txpower_keys: &[&str] = &["txpower_2g", "txpower_5g"];
-
-    // Global switches live in `wireless.zte_mbb.*` on older firmware and in
-    // `zte_mbb.wifi.*` on newer (CN B27+). Write whichever namespaces exist.
-    let mbb_map: &[(&str, &[&str])] = &[
-        (
-            WIFI_ONOFF_KEY,
-            &["wireless.zte_mbb.wifi_onoff", "zte_mbb.wifi.wifi_onoff"],
-        ),
-        (
-            WIFI6_SWITCH_KEY,
-            &["wireless.zte_mbb.wifi6_switch", "zte_mbb.wifi.wifi6_switch"],
-        ),
-    ];
-
-    let mut wireless_changed = false;
-    let mut mbb_changed = false;
-    let mut only_txpower = true;
-    let mut txpower_2g_val: Option<u32> = None;
-    let mut txpower_5g_val: Option<u32> = None;
-
-    for (key, value) in obj {
-        let val_str = match value {
-            Value::String(s) => s.clone(),
-            Value::Number(n) => n.to_string(),
-            Value::Bool(b) => if *b { "1" } else { "0" }.to_string(),
-            _ => continue,
-        };
-        let val_str = sanitize_wifi_input_value(key, &val_str);
-
-        // Prevent overwriting with masked placeholder
-        if (key == "key_2g" || key == "key_5g") && val_str == "••••••••" {
-            continue;
-        }
-
-        if key == WIFI_ONOFF_KEY {
-            let mut changed_any = false;
-            if let Some(&(_, paths)) = mbb_map.iter().find(|&&(k, _)| k == WIFI_ONOFF_KEY) {
-                for &path in paths {
-                    let current = ubus::uci_get(path).unwrap_or_default();
-                    if current.is_empty() {
-                        continue; // namespace absent on this firmware
-                    }
-                    if current != val_str {
-                        if let Err(e) = ubus::uci_set_no_commit(path, &val_str) {
-                            return (500, json!({"ok": false, "error": e}));
-                        }
-                        changed_any = true;
-                        if path.starts_with("zte_mbb.") {
-                            mbb_changed = true;
-                        }
-                    }
-                }
-            }
-
-            let current_user =
-                ubus::uci_get("wireless.zte_mbb.wifi_onoff_by_user").unwrap_or_default();
-            if !current_user.is_empty() && current_user != val_str {
-                if let Err(e) =
-                    ubus::uci_set_no_commit("wireless.zte_mbb.wifi_onoff_by_user", &val_str)
-                {
-                    return (500, json!({"ok": false, "error": e}));
-                }
-                changed_any = true;
-            }
-
-            if changed_any {
-                wireless_changed = true;
-                only_txpower = false;
-            }
-            continue;
-        }
-
-        if key == WIFI6_SWITCH_KEY {
-            if let Some(&(_, paths)) = mbb_map.iter().find(|&&(k, _)| k == WIFI6_SWITCH_KEY) {
-                for &path in paths {
-                    let current = ubus::uci_get(path).unwrap_or_default();
-                    if current.is_empty() {
-                        continue; // namespace absent on this firmware
-                    }
-                    if current != val_str {
-                        if let Err(e) = ubus::uci_set_no_commit(path, &val_str) {
-                            return (500, json!({"ok": false, "error": e}));
-                        }
-                        wireless_changed = true;
-                        only_txpower = false;
-                        if path.starts_with("zte_mbb.") {
-                            mbb_changed = true;
-                        }
-                    }
-                }
-            }
-            continue;
-        }
-
-        // Check wireless UCI map
-        if let Some(&(_, path)) = uci_map.iter().find(|&&(k, _)| k == key) {
-            let current = ubus::uci_get(path).unwrap_or_default();
-            if current != val_str {
-                if let Err(e) = ubus::uci_set_no_commit(path, &val_str) {
-                    return (500, json!({"ok": false, "error": e}));
-                }
-                wireless_changed = true;
-                if !txpower_keys.contains(&key.as_str()) {
-                    only_txpower = false;
-                } else if key == "txpower_2g" {
-                    txpower_2g_val = val_str.parse().ok();
-                } else if key == "txpower_5g" {
-                    txpower_5g_val = val_str.parse().ok();
-                }
-            }
-            continue;
-        }
-    }
-
-    // Commit batched changes
-    if wireless_changed {
-        if let Err(e) = ubus::uci_commit("wireless") {
-            return (500, json!({"ok": false, "error": e}));
-        }
-    }
-    if mbb_changed {
-        if let Err(e) = ubus::uci_commit("zte_mbb") {
-            return (500, json!({"ok": false, "error": e}));
-        }
-    }
-
-    if !wireless_changed && !mbb_changed {
-        return (
+    match uci_transaction::apply(&changes) {
+        Ok(()) => (
             200,
-            json!({"ok": true, "data": {"status": "ok", "note": "no changes"}}),
-        );
+            json!({"ok": true, "data": {"status": "ok", "changed": !changes.is_empty()}}),
+        ),
+        Err(error) => (503, json!({"ok": false, "error": error})),
     }
-
-    // Hot-apply txpower if that's the only change
-    if only_txpower {
-        if let Some(val) = txpower_2g_val {
-            let _ = Command::new("iw")
-                .args([
-                    "dev",
-                    "wlan0",
-                    "set",
-                    "txpower",
-                    "limit",
-                    &(val * 30).to_string(),
-                ])
-                .output();
-        }
-        if let Some(val) = txpower_5g_val {
-            let _ = Command::new("iw")
-                .args([
-                    "dev",
-                    "wlan2",
-                    "set",
-                    "txpower",
-                    "limit",
-                    &(val * 30).to_string(),
-                ])
-                .output();
-        }
-        return (
-            200,
-            json!({"ok": true, "data": {"status": "ok", "hot": true}}),
-        );
-    }
-
-    // Full reload needed. Run synchronously so a reload failure surfaces to
-    // the caller instead of leaving UCI committed but running config stale.
-    if let Err(e) = reload_wireless() {
-        return (
-            500,
-            json!({"ok": false, "error": format!("wireless reload failed: {e}")}),
-        );
-    }
-
-    (200, json!({"ok": true, "data": {"status": "ok"}}))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{bandwidth_options, sanitize_wifi_input_value};
-
-    #[test]
-    fn wifi_keys_keep_special_characters() {
-        let input = r#"Pass$word'";\|<>&`!"#;
-        assert_eq!(sanitize_wifi_input_value("key_5g", input), input);
-        assert_eq!(sanitize_wifi_input_value("guest_key", input), input);
+    use super::*;
+    fn config() -> WifiConfig {
+        let mut wireless = HashMap::new();
+        for (_, path) in WIFI_FIELDS {
+            wireless.insert(path.strip_prefix("wireless.").unwrap().into(), "0".into());
+        }
+        wireless.insert("wifi0.hwmode".into(), "11beg".into());
+        wireless.insert("wifi0.SupportedStandards".into(), "b,g,n,ax,be".into());
+        wireless.insert("main_2g.key".into(), "oldpassword".into());
+        wireless.insert("main_2g.encryption".into(), "psk3-mixed".into());
+        WifiConfig {
+            wireless,
+            mbb: HashMap::new(),
+        }
     }
-
     #[test]
-    fn wifi_keys_strip_control_characters_only() {
-        let input = "line1\nline2\rline3\u{0000}";
+    fn validates_entire_request_and_rejects_unknown_fields() {
+        let cfg = config();
+        for body in [
+            json!({"ssid_2g": "Valid", "txpower_2g": 101}),
+            json!({"key_2g": "short"}),
+            json!({"channel_2g": 36}),
+            json!({"ssid_2g": "line\nbreak"}),
+            json!({"ssid_2g": "a".repeat(33)}),
+            json!({"radio2_disabled": 3}),
+            json!({"encryption_2g": "invalid"}),
+            json!({"unknown": true}),
+            json!({"htmode_2g": "HT40"}),
+        ] {
+            assert!(plan_wifi(&body, &cfg).is_err(), "{body}");
+        }
+    }
+    #[test]
+    fn accepts_special_character_passwords_without_changing_them() {
+        let key = r#"Pass$word'";\|<>&`!"#;
+        let plan = plan_wifi(&json!({"key_2g": key, "htmode_2g": "EHT40"}), &config()).unwrap();
         assert_eq!(
-            sanitize_wifi_input_value("key_2g", input),
-            "line1line2line3"
+            plan.iter().find(|c| c.key.ends_with(".key")).unwrap().after,
+            key
         );
     }
-
-    #[test]
-    fn non_key_values_remain_sanitized() {
-        let input = r#"wifi$';`"\name|<&"#;
-        assert_eq!(sanitize_wifi_input_value("ssid_5g", input), "wifiname");
-    }
-
     #[test]
     fn wifi7_radios_use_eht_bandwidth_names() {
         assert_eq!(

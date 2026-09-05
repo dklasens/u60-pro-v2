@@ -1,3 +1,4 @@
+use crate::process::BoundedCommand;
 mod at_cmd;
 mod auth;
 mod cache;
@@ -8,14 +9,19 @@ mod csv_utils;
 mod device_ext;
 mod event_bus;
 mod handlers;
+mod lan;
+mod logging;
 mod network_ext;
+mod process;
 mod router;
 mod server;
 mod signal_logger;
 mod sim;
 mod sms;
+mod storage;
 mod system;
 mod ubus;
+mod uci_transaction;
 mod usb;
 mod util;
 mod validate;
@@ -26,12 +32,10 @@ use std::sync::Arc;
 use event_bus::EventBus;
 use handlers::AppState;
 
-const DEFAULT_BIND: &str = "192.168.0.1:9090";
 const DEFAULT_THREADS: usize = 4;
 const STARTUP_SCRIPT: &str = "/data/local/tmp/start_zte_agent.sh";
 
 fn main() {
-    let bind = std::env::var("ZTE_AGENT_BIND").unwrap_or_else(|_| DEFAULT_BIND.to_string());
     let threads: usize = std::env::var("ZTE_AGENT_THREADS")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -68,11 +72,12 @@ fn main() {
     // Apply persisted TTL settings if they exist
     let _ = std::process::Command::new("sh")
         .arg("/data/local/tmp/start_ttl.sh")
-        .output();
+        .bounded_output();
 
     usb::enforce_usb_mode_on_boot();
 
-    server::start(&bind, threads, state);
+    state.lan.recover();
+    server::start(threads.clamp(1, 16), state);
 }
 
 /// Read `export KEY='value'` out of the startup script.
@@ -107,7 +112,7 @@ fn migrate_drop_removed_features() {
                  uci commit dhcp; \
                  /etc/init.d/dnsmasq restart",
             ])
-            .output();
+            .bounded_output();
         let _ = std::fs::remove_file(DOH_CONFIG);
     }
 

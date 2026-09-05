@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../data/api'
+import { confirmLan } from '../../data/client'
 import type { DnsConfig, LanConfig } from '../../types'
 import { Button, Field, Input, Toggle } from '../../ui/controls'
 import { toast, toastError } from '../../ui/feedback'
@@ -88,6 +89,7 @@ function LanSection() {
     lease_seconds: 86400,
   })
   const [busy, setBusy] = useState(false)
+  const [transition, setTransition] = useState('')
 
   useEffect(() => {
     api.lanGet().then(setLan).catch(() => {})
@@ -96,7 +98,7 @@ function LanSection() {
   async function save() {
     setBusy(true)
     try {
-      await api.lanSet({
+      const result = await api.lanSet({
         ipaddr: lan.ipaddr,
         netmask: lan.netmask,
         dhcp_enabled: lan.dhcp_enabled,
@@ -104,8 +106,35 @@ function LanSection() {
         dhcp_end: lan.dhcp_end,
         lease_seconds: lan.lease_seconds,
       })
-      toast('LAN settings saved')
+      if (result.changed) {
+        if (result.reconnect_ip !== lan.ipaddr || typeof result.confirmation_token !== 'string') {
+          throw new Error('Invalid LAN transition response; previous settings will be restored automatically')
+        }
+        setTransition(`Reconnecting to ${lan.ipaddr}. Rejoin Wi-Fi if needed. Previous settings return automatically if confirmation fails.`)
+        const deadline = Date.now() + 90_000
+        let confirmed = false
+        while (Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          try {
+            await confirmLan(lan.ipaddr, result.confirmation_token)
+            confirmed = true
+            break
+          } catch { /* The address may still be changing; retry within the recovery window. */ }
+        }
+        if (!confirmed) {
+          throw new Error('Could not confirm the new address. Wait up to two minutes from Apply for the previous LAN settings to return, then reconnect.')
+        }
+        setTransition('LAN settings confirmed. Opening the dashboard at its new address…')
+        if (window.location.hostname !== lan.ipaddr) {
+          const next = new URL(window.location.href)
+          next.hostname = lan.ipaddr
+          // Session storage belongs to the old origin; sign in again at the new address.
+          window.location.assign(next.toString())
+        }
+      }
+      toast('LAN settings saved and confirmed')
     } catch (e) {
+      setTransition(e instanceof Error ? e.message : 'LAN change failed')
       toastError(e, 'Failed to save LAN settings')
     } finally {
       setBusy(false)
@@ -114,6 +143,7 @@ function LanSection() {
 
   return (
     <Card title="LAN / DHCP">
+      <p className="mb-3 text-xs text-ink3" role="status">{transition || 'Changes must reconnect and confirm within two minutes; otherwise the previous settings are restored.'}</p>
       <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
         <Field label="LAN IP">
           <Input value={lan.ipaddr} onChange={(e) => setLan((l) => ({ ...l, ipaddr: e.target.value }))} inputMode="numeric" />

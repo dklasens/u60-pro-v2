@@ -61,6 +61,21 @@ const RSSI_TIP =
 
 // ── Carrier table (desktop) / cards (mobile) ──────────────────────────────────
 
+function CarrierStatus({ carrier, empty = null }: { carrier: CarrierComponent; empty?: React.ReactNode }) {
+  if (carrier.ul_configured === undefined && carrier.active === undefined) return empty
+
+  return (
+    <span className="flex flex-wrap gap-1">
+      {carrier.ul_configured !== undefined && (
+        <Chip tone={carrier.ul_configured ? 'ok' : 'default'}>UL {carrier.ul_configured ? '\u2713' : '\u2717'}</Chip>
+      )}
+      {carrier.active !== undefined && (
+        <Chip tone={carrier.active ? 'ok' : 'default'}>{carrier.active ? 'Active' : 'Idle'}</Chip>
+      )}
+    </span>
+  )
+}
+
 function CarrierTable({ carriers, tech }: { carriers: CarrierComponent[]; tech: 'NR' | 'LTE' }) {
   if (carriers.length === 0) return null
   const isNR = tech === 'NR'
@@ -80,6 +95,7 @@ function CarrierTable({ carriers, tech }: { carriers: CarrierComponent[]; tech: 
             <tr className="border-b border-line/8 text-[11px] uppercase tracking-wider text-ink3">
               <th className="pb-1.5 pr-3 font-semibold">Type</th>
               <th className="pb-1.5 pr-3 font-semibold">Band</th>
+              <th className="pb-1.5 pr-3 font-semibold">Status</th>
               <th className="pb-1.5 pr-3 font-semibold">PCI</th>
               <th className="pb-1.5 pr-3 font-semibold">{isNR ? 'ARFCN' : 'EARFCN'}</th>
               <th className="pb-1.5 pr-3 font-semibold">BW</th>
@@ -118,6 +134,9 @@ function CarrierTable({ carriers, tech }: { carriers: CarrierComponent[]; tech: 
                     <Chip tone={isPcc ? (isNR ? 'nr' : 'lte') : 'default'}>{c.label}</Chip>
                   </td>
                   <td className={`py-1.5 pr-3 font-semibold ${bandText}`}>{c.band}</td>
+                  <td className="py-1.5 pr-3 text-ink3">
+                    <CarrierStatus carrier={c} empty={'\u2014'} />
+                  </td>
                   <td className="tnum py-1.5 pr-3 text-ink">{c.pci}</td>
                   <td className="tnum py-1.5 pr-3 text-ink">{c.earfcn}</td>
                   <td className="tnum py-1.5 pr-3 text-ink2">{c.bandwidth}</td>
@@ -159,16 +178,9 @@ function CarrierTable({ carriers, tech }: { carriers: CarrierComponent[]; tech: 
               <div className="mb-2 flex items-center gap-2">
                 <Chip tone={isPcc ? (isNR ? 'nr' : 'lte') : 'default'}>{c.label}</Chip>
                 <span className={`text-sm font-bold ${bandText}`}>{c.band}</span>
-                {(c.ul_configured !== undefined || c.active !== undefined) && (
-                  <div className="ml-auto flex gap-1">
-                    {c.ul_configured !== undefined && (
-                      <Chip tone={c.ul_configured ? 'ok' : 'default'}>UL {c.ul_configured ? '\u2713' : '\u2717'}</Chip>
-                    )}
-                    {c.active !== undefined && (
-                      <Chip tone={c.active ? 'ok' : 'default'}>{c.active ? 'Active' : 'Idle'}</Chip>
-                    )}
-                  </div>
-                )}
+                <div className="ml-auto">
+                  <CarrierStatus carrier={c} />
+                </div>
               </div>
               <div className="grid grid-cols-4 gap-2">
                 {metrics.map((m) => (

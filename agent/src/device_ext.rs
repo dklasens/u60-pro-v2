@@ -69,9 +69,9 @@ pub fn device_battery_detail(_state: &AppState) -> (u16, Value) {
     let time_to_empty = read_i64("time_to_empty_avg").filter(|value| *value >= 0);
 
     // Compute power from voltage * current (more accurate than sysfs power_now)
-    let power_mw = voltage_uv.zip(current_ua).map(|(voltage, current)| {
-        (voltage as f64 * current as f64 / 1e9) as i64
-    });
+    let power_mw = voltage_uv
+        .zip(current_ua)
+        .map(|(voltage, current)| (voltage as f64 * current as f64 / 1e9) as i64);
     let available = capacity.is_some() || status.is_some() || voltage_uv.is_some();
 
     (
@@ -148,17 +148,23 @@ pub fn agent_restart(_state: &AppState) -> (u16, Value) {
 /// GET /api/device/charge-control — charge stop state + limit enforcer config
 pub fn charge_control_get(state: &AppState) -> (u16, Value) {
     let read_sysfs = |path: &str| -> Option<String> {
-        fs::read_to_string(path).ok().map(|value| value.trim().to_string())
+        fs::read_to_string(path)
+            .ok()
+            .map(|value| value.trim().to_string())
     };
 
     let battery_status = read_sysfs("/sys/class/power_supply/battery/status");
-    let capacity: Option<i64> = read_sysfs("/sys/class/power_supply/battery/capacity")
-        .and_then(|value| value.parse().ok());
+    let capacity: Option<i64> =
+        read_sysfs("/sys/class/power_supply/battery/capacity").and_then(|value| value.parse().ok());
 
     // Inverted firmware semantics: direct_power_supply_mode "enable" = charging STOPPED
     let charging_stopped = ubus::call("zwrt_bsp.charger", "list", Some("{}"))
         .ok()
-        .and_then(|v| v["direct_power_supply_mode"].as_str().map(|s| s == "enable"));
+        .and_then(|v| {
+            v["direct_power_supply_mode"]
+                .as_str()
+                .map(|s| s == "enable")
+        });
     let battery_available = capacity.is_some() || battery_status.is_some();
     let charger_available = charging_stopped.is_some();
 
@@ -179,6 +185,7 @@ pub fn charge_control_get(state: &AppState) -> (u16, Value) {
                 "charge_limit": limit_pct,
                 "hysteresis": hysteresis,
                 "manual_override": manual_override,
+                "last_error": state.charge_limit.last_error(),
             }
         }),
     )
@@ -186,61 +193,17 @@ pub fn charge_control_get(state: &AppState) -> (u16, Value) {
 
 /// PUT /api/device/charge-control — manual charge stop/resume and limit config
 pub fn charge_control_set(state: &AppState, body: &[u8]) -> (u16, Value) {
-    let parsed: Value = match serde_json::from_slice(body) {
+    let update: crate::charge_policy::ChargeUpdate = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
-    };
-
-    // Manual charge stop/resume via ubus (inverted: "enable" = stop, "disable" = start)
-    if let Some(stopped) = parsed["charging_stopped"].as_bool() {
-        if ubus::call("zwrt_bsp.charger", "list", Some("{}"))
-            .ok()
-            .and_then(|v| v["direct_power_supply_mode"].as_str().map(str::to_string))
-            .is_none()
-        {
-            return (503, json!({"ok": false, "error": "charger control hardware is unavailable"}));
-        }
-        let mode = if stopped { "enable" } else { "disable" };
-        let params = format!(r#"{{"direct_power_supply_mode":"{mode}"}}"#);
-        if let Err(e) = ubus::call("zwrt_bsp.charger", "set", Some(&params)) {
+        Err(e) => {
             return (
-                500,
-                json!({"ok": false, "error": format!("charger ubus: {e}")}),
-            );
+                400,
+                json!({"ok": false, "error": format!("invalid charge control: {e}")}),
+            )
         }
-        // Set manual override so enforcer doesn't fight the user
-        state.charge_limit.set_manual_override(stopped);
+    };
+    if let Err(error) = state.charge_limit.update(update) {
+        return (503, json!({"ok": false, "error": error}));
     }
-
-    // Charge limit settings
-    if parsed.get("charge_limit_enabled").is_some()
-        || parsed.get("charge_limit").is_some()
-        || parsed.get("hysteresis").is_some()
-    {
-        if fs::read_to_string("/sys/class/power_supply/battery/capacity")
-            .ok()
-            .and_then(|value| value.trim().parse::<u8>().ok())
-            .is_none()
-        {
-            return (503, json!({"ok": false, "error": "battery capacity sensor is unavailable"}));
-        }
-        let (cur_enabled, cur_limit, cur_hysteresis, _) = state.charge_limit.get();
-        let enabled = parsed["charge_limit_enabled"]
-            .as_bool()
-            .unwrap_or(cur_enabled);
-        let limit = parsed["charge_limit"]
-            .as_u64()
-            .map(|v| v as u8)
-            .unwrap_or(cur_limit);
-        let hysteresis = parsed["hysteresis"]
-            .as_u64()
-            .map(|v| v as u8)
-            .unwrap_or(cur_hysteresis);
-
-        if let Err(e) = state.charge_limit.set(enabled, limit, hysteresis) {
-            return (400, json!({"ok": false, "error": e}));
-        }
-    }
-
     charge_control_get(state)
 }

@@ -1,11 +1,9 @@
 use std::ffi::{OsStr, OsString};
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
 use std::time::Duration;
 
 use crate::model::InstallerError;
-use wait_timeout::ChildExt;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -40,83 +38,14 @@ pub fn run_timeout(
     context: &str,
     timeout: Duration,
 ) -> Result<Output, InstallerError> {
-    let mut command = command(program.as_os_str());
-    command
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if input.is_some() {
-        command.stdin(Stdio::piped());
-    } else {
-        command.stdin(Stdio::null());
-    }
-
-    let mut child = command.spawn().map_err(|error| {
-        InstallerError::new(
-            format!("Couldn’t start {context}"),
-            "Check that the required helper is available, then detect the device again.",
-            format!("{}: {error}", program.display()),
-        )
-    })?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| InstallerError::internal(context, "stdout was unavailable"))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| InstallerError::internal(context, "stderr was unavailable"))?;
-    let stdout_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let result = stdout.read_to_end(&mut bytes);
-        (result, bytes)
-    });
-    let stderr_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let result = stderr.read_to_end(&mut bytes);
-        (result, bytes)
-    });
-
-    if let Some(bytes) = input {
-        child
-            .stdin
-            .take()
-            .ok_or_else(|| InstallerError::internal(context, "stdin was unavailable"))?
-            .write_all(bytes)
-            .map_err(|error| InstallerError::internal(context, error))?;
-    }
-    let status = match child
-        .wait_timeout(timeout)
-        .map_err(|error| InstallerError::internal(context, error))?
-    {
-        Some(status) => status,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(InstallerError::new(
-                format!("{context} stopped responding"),
-                "Check the modem connection and try detection again.",
-                format!(
-                    "{} exceeded the {} second timeout",
-                    program.display(),
-                    timeout.as_secs()
-                ),
-            ));
-        }
-    };
-    let (stdout_result, stdout) = stdout_reader
-        .join()
-        .map_err(|_| InstallerError::internal(context, "stdout reader panicked"))?;
-    stdout_result.map_err(|error| InstallerError::internal(context, error))?;
-    let (stderr_result, stderr) = stderr_reader
-        .join()
-        .map_err(|_| InstallerError::internal(context, "stderr reader panicked"))?;
-    stderr_result.map_err(|error| InstallerError::internal(context, error))?;
-    Ok(Output {
-        status,
-        stdout,
-        stderr,
-    })
+    process_runner::output(
+        command(program.as_os_str()).args(args), input, timeout,
+        process_runner::DEFAULT_OUTPUT_LIMIT,
+    ).map_err(|error| InstallerError::new(
+        format!("Couldn’t finish {context}"),
+        "Check the modem connection. The operation stopped at its deadline or failed; detect again before retrying.",
+        format!("{}: {error}", program.display()),
+    ))
 }
 
 pub fn find_on_path(name: &str) -> Option<PathBuf> {

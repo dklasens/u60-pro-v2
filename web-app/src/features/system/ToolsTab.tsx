@@ -106,7 +106,8 @@ function LoggerCard({
 
   return (
     <Card title={title}>
-      <p className="mb-3 text-[12px] text-ink2">{description}</p>
+      <p className="mb-3 text-[12px] text-ink2">{description} Logs stop at 8 MiB and flush at least every 30 seconds.</p>
+      {status?.last_error && <p role="alert" className="mb-3 text-[12px] text-danger">{status.last_error}</p>}
 
       {!isRunning && (
         <div className="mb-3 grid grid-cols-2 gap-2">

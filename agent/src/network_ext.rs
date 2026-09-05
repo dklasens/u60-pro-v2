@@ -1,3 +1,4 @@
+use crate::process::BoundedCommand;
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
 
@@ -45,7 +46,10 @@ struct WifiStationInfo {
 }
 
 fn parse_station_dump(iface: &str, band: &str) -> HashMap<String, WifiStationInfo> {
-    let output = match Command::new("iw").args([iface, "station", "dump"]).output() {
+    let output = match Command::new("iw")
+        .args([iface, "station", "dump"])
+        .bounded_output()
+    {
         Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
         Err(_) => return HashMap::new(),
     };
@@ -101,7 +105,7 @@ fn parse_station_dump(iface: &str, band: &str) -> HashMap<String, WifiStationInf
 fn bridge_port_by_mac() -> HashMap<String, String> {
     let output = match Command::new("bridge")
         .args(["fdb", "show", "br", "br-lan"])
-        .output()
+        .bounded_output()
     {
         Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
         Err(_) => return HashMap::new(),
@@ -189,7 +193,7 @@ fn link_speed_mbps(iface: &str) -> Option<u64> {
         }
     }
 
-    let output = Command::new("ethtool").arg(iface).output().ok()?;
+    let output = Command::new("ethtool").arg(iface).bounded_output().ok()?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     stdout.lines().find_map(|line| {
         let trimmed = line.trim();
@@ -279,14 +283,17 @@ pub fn network_battery_ubus(_state: &AppState) -> (u16, Value) {
                 || using_hw_fg_chip.is_some()
                 || time_to_full_mins.is_some()
                 || time_to_empty_mins.is_some();
-            (200, json!({"ok": true, "data": {
-                "available": available,
-                "online": online,
-                "low_power": low_power,
-                "using_hw_fg_chip": using_hw_fg_chip,
-                "time_to_full_mins": time_to_full_mins,
-                "time_to_empty_mins": time_to_empty_mins,
-            }}))
+            (
+                200,
+                json!({"ok": true, "data": {
+                    "available": available,
+                    "online": online,
+                    "low_power": low_power,
+                    "using_hw_fg_chip": using_hw_fg_chip,
+                    "time_to_full_mins": time_to_full_mins,
+                    "time_to_empty_mins": time_to_empty_mins,
+                }}),
+            )
         }
         Err(e) => (503, json!({"ok": false, "error": e})),
     }

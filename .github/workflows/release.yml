@@ -8,6 +8,8 @@ permissions:
   contents: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
   agent:
     runs-on: ubuntu-latest
     steps:
@@ -76,7 +78,7 @@ jobs:
           path: dashboard-dist.tar.gz
 
   publish:
-    needs: [agent, dashboard]
+    needs: [agent, dashboard, checks]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -98,6 +100,10 @@ jobs:
 
       - name: Release notes
         run: |
+          if [ -f "docs/releases/${GITHUB_REF_NAME}.md" ]; then
+            cp "docs/releases/${GITHUB_REF_NAME}.md" release-notes.md
+            exit 0
+          fi
           cat > release-notes.md <<'EOF'
           Pre-built artifacts for the ZTE U60 Pro (MU5250).
 

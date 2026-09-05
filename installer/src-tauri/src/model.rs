@@ -21,6 +21,8 @@ pub struct InstallRequest {
     pub dry_run: bool,
     pub reboot_after: bool,
     pub diagnostic_mode: bool,
+    #[serde(default)]
+    pub bundle_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -90,6 +92,7 @@ pub struct DetectionResult {
 
 #[derive(Clone, Debug)]
 pub struct DetectionSnapshot {
+    pub identity: Option<crate::identity::Identity>,
     pub id: String,
     pub gateway: String,
     pub adb_path: Option<std::path::PathBuf>,

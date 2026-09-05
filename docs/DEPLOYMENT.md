@@ -22,10 +22,10 @@ behavior, source-build instructions, diagnostics, and signing notes.
 ## The whole flow at a glance
 
 ```sh
-python3 scripts/zunlock.py     # 1. unlock → adbd        (locked firmware only)
-bash setup.sh                  # 2. build + install the agent (choose build-from-source)
-bash scripts/zharden.sh        # 3. SSH, rc.local cleanup, dashboard :8080, FOTA off
-bash deploy-dashboard.sh       # 4. build + push the web UI
+bash setup.sh                  # prepare dependencies, unlock if needed, agent + SSH + FOTA off
+bash deploy-dashboard.sh       # build, stage, activate and verify the web UI
+# Optional repair of SSH/server configuration:
+bash scripts/zharden.sh
 ```
 
 End state (persists across reboots):
@@ -34,10 +34,10 @@ End state (persists across reboots):
 |---|---|---|
 | USB-C tethering | USB-C, ECM (stock composition) | survives reboots (no usb_op write) |
 | Stock web UI | `http://192.168.0.1:80` / `:443` | untouched |
-| Dashboard | `http://192.168.0.1:8080` | isolated `/data/bin/dashboard-uhttpd` → `/data/www` |
+| Dashboard | `http://192.168.0.1:8080` | isolated `/data/bin/dashboard-uhttpd` → `/data/www.current` |
 | Agent API | `http://192.168.0.1:9090` | password = your choice at setup |
 | SSH | `ssh -p 2222 root@192.168.0.1` | key-only, `/data/bin/dropbear` |
-| ADB | on demand | `echo 1 > /sys/class/android_usb/android0/usb_op` via SSH + reboot; reverts next reboot |
+| ADB | on demand | sanctioned unlock / `rc.local` path + reboot; never write `usb_op` live |
 
 ---
 
@@ -104,7 +104,7 @@ What happens on a full run:
    outer tgz → re-encrypt) — passes the device's own restore-time md5 check
 5. uploads it (`/cgi-bin/cgi-upload`, verifies the server's sha256 matches),
    triggers `device_restore_proc` — the device restores and reboots
-6. ~60–90 s later: `adb devices` shows the unit (serial `0123456789ABCDEF`),
+6. ~60–90 s later: `adb devices` shows the unit (verify it matches your connected modem),
    root shell via `adb shell`
 
 Your settings are preserved — the patched package is built from a backup
@@ -132,13 +132,42 @@ bash setup.sh
   pre-built download comes from this repo's GitHub releases and matches
   the dashboard — use it when installing the Rust toolchain isn't
   practical.
-- If the device is locked (no SSH, no ADB) it runs the unlock first (see
-  above). If ADB is already up or SSH works, it deploys straight away.
+- All packages and the built/downloaded agent are prepared before unlock. A
+  downloaded agent must match its release checksum. If the device is locked,
+  setup then runs the backup dry run and confirmed restore; otherwise it
+  verifies the selected ADB or SSH device directly.
 - Pushes the agent to `/data/zte-agent`, creates the startup script with
   your password, adds the rc.local line, starts and verifies it.
-- When ADB is the management channel, verification runs the firmware's
+- Over both ADB and SSH, verification runs the firmware's
   `/usr/bin/curl` on the device against `192.168.0.1:9090`. An ADB TCP forward
   is not used because the agent intentionally does not listen on loopback.
+
+### Dry runs, offline preparation and rollback
+
+`deploy.sh`, `deploy-dashboard.sh` and `scripts/zharden.sh` accept `--dry-run`,
+`--gateway ADDRESS` and `--adb-serial SERIAL`. Agent/dashboard builds happen
+locally before the read-only device checks. For interactive setup, use
+`ZTE_DRY_RUN=1 bash setup.sh`. A locked-device dry run stops after backup
+preparation; storage and shell checks require an unlocked transport.
+
+The terminal wrappers use `scripts/deploy-components.py`. Credentials enter as
+data and are validated before writes; `ZTE_AGENT_PIN` may contain six digits or
+be empty to clear an existing PIN. Verification covers both password login and
+requested PIN state. An optional native-installer offline bundle can be passed
+to setup using `ZTE_BUNDLE_PATH=/path/to/bundle`; hardening accepts `--bundle`.
+
+Each deployment checks space for the new files and rollback copies, and creates
+a private snapshot under `/data/local/tmp/open-u60-transactions/<id>`. Failure
+attempts to restore the snapshot. The console prints the exact recovery command
+for use on the same modem if automatic recovery loses its connection. Successful
+snapshots remain available; save needed recovery data before removing old ones.
+A pending transaction blocks another deployment. Original encrypted unlock
+backups remain in `~/.local/share/open-u60-pro/recovery` for the terminal flow.
+
+Setup now includes SSH hardening and the dashboard server. Installing the web
+files remains a separate `deploy-dashboard.sh` step. Reboot manually when ready
+to return from the temporary ADB composition to normal tethering; the native
+installer can perform and verify this final reboot itself.
 
 ## 3. Hardening — `scripts/zharden.sh`
 
@@ -166,10 +195,11 @@ bash deploy-dashboard.sh
 ```
 
 Checks the installed Node.js version, runs `npm ci`, builds `web-app` (Vite),
-and streams `dist/` to `/data/www` over an SSH tar pipe (the device has no
-sftp/scp). It also copies `index.html` → `mobile.html`, restarts only the
+and creates a validated archive. The shared deployment tool stages and hashes
+that archive, extracts it into a new `/data/open-u60-dashboards/<id>` directory,
+normalizes static-file read permissions, and switches `/data/www.current` only after extraction succeeds. It also copies `index.html` → `mobile.html`, restarts only the
 isolated dashboard server, and verifies the served SPA before reporting
-success. Run `scripts/zharden.sh` once first to install that server.
+success. `setup.sh` installs that server; `scripts/zharden.sh` can repair it.
 
 If the script reports an unsupported Node.js version, install Node 20.19.x or
 22.12+ (Node 22 LTS is recommended), confirm with `node --version`, and rerun.

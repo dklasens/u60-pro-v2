@@ -1,7 +1,7 @@
 # Dashboard
 
 React 19 + Vite + Tailwind SPA served from the device itself (isolated
-upstream OpenWrt uhttpd on port 8080, files in `/data/www`), talking to the
+upstream OpenWrt uhttpd on port 8080, release files selected by `/data/www.current` (legacy `/data/www` fallback)), talking to the
 agent on port 9090. It is kept separate from ZTE's patched stock-UI uhttpd,
 whose singleton ubus object makes a second UCI instance unreliable.
 

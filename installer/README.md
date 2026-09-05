@@ -26,8 +26,8 @@ selected USB modem. The application:
 - asks the user to select a modem if multiple compatible MU5250 units exist;
 - invalidates the plan whenever the device address or selected modem changes;
 - chooses **Install**, **Repair**, or **Update** from the detected service state;
-- shows unlock credentials and dry run only for locked firmware;
-- shows the final reboot option only for ADB installations;
+- shows unlock credentials for locked firmware and a deployment dry run for every transport;
+- verifies a requested ADB reboot through a new boot ID, device identity, authentication, SSH policy and dashboard response;
 - validates matching agent passwords and an optional six-digit PIN;
 - streams friendly progress and detailed logs from the Rust worker;
 - reports dry runs separately from successful installations;
@@ -55,8 +55,11 @@ starts. The worker never reads UI state. The Rust layer also compares that
 request with the saved detection ID, address, mode, and ADB serial before any
 device change.
 
-Temporary downloads and decrypted/extracted backups are removed on success or
-failure. **Keep temporary files** is an explicit diagnostic option; retained
+Temporary working files and decrypted/extracted backups are removed on success or
+failure. Verified downloads are retained as reusable offline bundles; the log
+prints the directory to enter under **Offline bundle and diagnostics**. Original
+encrypted configuration backups are retained in the local application-data
+`open-u60-pro/recovery` directory with a device fingerprint and checksum. **Keep temporary files** is an explicit diagnostic option; retained
 unlock data can contain sensitive modem configuration and should be deleted
 after troubleshooting.
 
@@ -110,6 +113,46 @@ The four deployment fixes shared with the shell installer are present here:
    the modem.
 4. The installer consumes prebuilt dashboard assets, so Node.js requirements
    apply only to developers and CI.
+
+## Deployment verification and recovery
+
+To test the current source changes before publishing a release, run
+`bash scripts/build-offline-bundle.sh` from the repository root, then select the
+printed bundle directory in the installer. Downloading **latest** uses the
+published agent/dashboard, which may predate the branch being tested.
+
+The installer downloads and verifies every dependency before an unlock can
+interrupt connectivity. It checks the model, firmware, root privileges and CPU
+architecture through the selected transport, and compares the device fingerprint
+again before writing. SSH detection therefore requires an authenticated modem
+response, rather than an open port.
+
+Agent binaries, startup scripts and dashboard archives are hash-checked before
+activation. Dashboard archives reject unsafe paths, links, duplicate entries and
+excessive expansion. Releases activate through `/data/www.current`; previous
+files remain in a private deployment snapshot. Startup edits are syntax-checked
+before replacing `rc.local`, preserving its stock flash-protection block.
+
+A deployment dry run over ADB or SSH checks identity, artifacts, storage and
+startup prerequisites without deployment writes. A locked-device dry run can
+prepare the encrypted backup and verify downloads, but cannot yet check shell
+access or device free space. It does not upload a backup or reboot the modem.
+
+A failed installation attempts to restore its snapshot and restart the previous
+services. If connectivity prevents recovery, the error gives the exact recovery
+command and snapshot ID. Run it only on the same modem after reconnecting. A
+pending snapshot blocks another install. Keep recovery files until the new
+installation has been checked; deletion and automatic snapshot pruning are not
+part of deployment.
+
+Dropbear is started with password authentication disabled. Verification checks
+both successful key access and the authentication methods advertised by the
+server. Password/PIN verification uses curl on the modem over the management
+channel. Clearing the PIN explicitly unsets it, and PIN-only changes restart
+and recheck the agent.
+
+The dashboard and agent API still use HTTP on the LAN. Key-only SSH does not
+encrypt browser/API traffic; HTTPS remains a separate roadmap item.
 
 ## Release packaging and signing
 

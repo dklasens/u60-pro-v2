@@ -58,6 +58,7 @@ interface InstallerError {
 }
 
 const initialSteps: Record<string, StepStatus> = {
+  prepare: 'waiting',
   unlock: 'waiting',
   wait: 'waiting',
   agent: 'waiting',
@@ -67,6 +68,7 @@ const initialSteps: Record<string, StepStatus> = {
 }
 
 const stepLabels: Record<string, string> = {
+  prepare: 'Verify files',
   unlock: 'Unlock',
   wait: 'Reconnect',
   agent: 'Agent',
@@ -128,6 +130,7 @@ function App() {
   const [agentPin, setAgentPin] = useState('')
   const [showCredentials, setShowCredentials] = useState(false)
   const [dryRun, setDryRun] = useState(false)
+  const [bundlePath, setBundlePath] = useState('')
   const [rebootAfter, setRebootAfter] = useState(true)
   const [diagnosticMode, setDiagnosticMode] = useState(false)
   const [detection, setDetection] = useState<DetectionResult | null>(null)
@@ -171,6 +174,7 @@ function App() {
   const compatibleDevices = detection?.adbDevices.filter((device) => device.compatible) ?? []
   const isLocked = detection?.mode === 'unlock'
   const isAdb = detection?.mode === 'adb'
+  const canRebootAfter = isAdb || isLocked
   const operationLabel = detection?.operation ? `${detection.operation[0].toUpperCase()}${detection.operation.slice(1)}` : 'Continue'
   const credentialsMatch = agentPassword === agentPasswordConfirmation
   const pinValid = !agentPin || /^\d{6}$/.test(agentPin)
@@ -182,8 +186,8 @@ function App() {
     && (!isLocked || (routerPassword && backupSuffix)),
   )
   const visibleSteps = useMemo(
-    () => Object.keys(stepLabels).filter((step) => step !== 'reboot' || isAdb),
-    [isAdb],
+    () => Object.keys(stepLabels).filter((step) => step !== 'reboot' || canRebootAfter),
+    [canRebootAfter],
   )
   const logText = logs.join('\n')
 
@@ -251,9 +255,10 @@ function App() {
       agentPassword,
       agentPasswordConfirmation,
       agentPin,
-      dryRun: isLocked ? dryRun : false,
-      rebootAfter: isAdb ? rebootAfter : false,
+      dryRun,
+      rebootAfter: canRebootAfter ? rebootAfter : false,
       diagnosticMode,
+      bundlePath: bundlePath.trim() || null,
     }
     setConfirming(false)
     setOutcome(null)
@@ -401,20 +406,23 @@ function App() {
           </label>
 
           <div className="option-list">
-            {isLocked && (
-              <label className="check-option">
-                <input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} disabled={running} />
-                <span><strong>Unlock dry run</strong><small>Prepare and verify the backup without uploading it.</small></span>
-              </label>
-            )}
-            {isAdb && (
+            <label className="check-option">
+              <input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} disabled={running} />
+              <span><strong>Deployment dry run</strong><small>{isLocked ? 'Verify downloads and prepare the unlock backup without uploading it.' : 'Verify downloads and device identity without changing the device.'}</small></span>
+            </label>
+            {canRebootAfter && (
               <label className="check-option">
                 <input type="checkbox" checked={rebootAfter} onChange={(event) => setRebootAfter(event.target.checked)} disabled={running} />
                 <span><strong>Reboot when finished</strong><small>Restores normal USB tethering after the ADB installation.</small></span>
               </label>
             )}
             <details className="advanced-options">
-              <summary>Diagnostics</summary>
+              <summary>Offline bundle and diagnostics</summary>
+              <label className="field">
+                <span>Offline bundle directory</span>
+                <input value={bundlePath} onChange={(event) => setBundlePath(event.target.value)} disabled={running} placeholder="Leave blank to download" />
+                <small>Use the directory printed in a previous run’s log. Its files and checksums are verified before use.</small>
+              </label>
               <label className="check-option">
                 <input type="checkbox" checked={diagnosticMode} onChange={(event) => setDiagnosticMode(event.target.checked)} disabled={running} />
                 <span><strong>Keep temporary files</strong><small>Retains downloads and decrypted backup data for troubleshooting. These files may contain sensitive configuration.</small></span>
@@ -423,7 +431,7 @@ function App() {
           </div>
 
           <button className="primary-button" disabled={!formValid || detecting || running} onClick={requestRun}>
-            {running ? 'Working…' : `${operationLabel}${isLocked && dryRun ? ' dry run' : ''}`}
+            {running ? 'Working…' : `${operationLabel}${dryRun ? ' dry run' : ''}`}
           </button>
           {!detection?.ready && <p className="button-help">Detect a ready modem to continue.</p>}
         </section>

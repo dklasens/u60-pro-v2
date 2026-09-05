@@ -1,3 +1,4 @@
+import { readCsv } from './client'
 // Agent API bindings + response mappers.
 //
 // The mappers encode hard-won knowledge of the firmware's response shapes
@@ -19,7 +20,6 @@ import type {
   HomeData,
   KillBloatResult,
   LanConfig,
-  LoggerDownload,
   LoggerStatus,
   MemInfo,
   ModemCapabilities,
@@ -608,6 +608,8 @@ function mapHome(d: Record<string, unknown>): HomeData {
     memory: isObj(d.memory) ? mapMemory(d.memory) : null,
     usage: isObj(d.data_usage) && !('error' in d.data_usage) ? mapDataUsage(d.data_usage) : null,
     thermal: isObj(d.thermal) ? mapThermal(d.thermal) : null,
+    sources: isObj(d.sources) ? d.sources as unknown as HomeData['sources'] : {},
+    charge_control_error: typeof d.charge_control_error === 'string' ? d.charge_control_error : null,
   }
 }
 
@@ -696,7 +698,7 @@ export const api = {
     post('/api/logger/signal/start', { duration_secs, interval_secs }),
   loggerSignalStop: () => post('/api/logger/signal/stop', {}),
   loggerSignalStatus: () => get('/api/logger/signal/status').then((d) => d as unknown as LoggerStatus),
-  loggerSignalDownload: () => get('/api/logger/signal/download').then((d) => d as unknown as LoggerDownload),
+  loggerSignalDownload: () => readCsv('/api/logger/signal/download'),
 
   // Connection logger
   loggerConnectionStart: (duration_secs: number, interval_secs: number) =>
@@ -704,7 +706,7 @@ export const api = {
   loggerConnectionStop: () => post('/api/logger/connection/stop', {}),
   loggerConnectionStatus: () => get('/api/logger/connection/status').then((d) => d as unknown as LoggerStatus),
   loggerConnectionDownload: () =>
-    get('/api/logger/connection/download').then((d) => d as unknown as LoggerDownload),
+    readCsv('/api/logger/connection/download'),
 
   // AT console
   atSend: (command: string, timeout?: number) =>

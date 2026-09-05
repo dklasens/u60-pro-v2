@@ -103,3 +103,33 @@ USB boot guards, WiFi sanitizers).
 `python3 scripts/check-api-contract.py` asserts the agent route table, the
 dashboard's calls and the mock agent's fixtures all agree — run it after
 touching any of the three.
+
+## Recovery, freshness and bounded logging
+
+The default listener reads the configured LAN IPv4 address at startup. A LAN
+change returns HTTP 202 with a reconnect address and a confirmation token. The
+dashboard confirms connectivity within 120 seconds. Until confirmation, a
+private recovery record lets the agent restore the previous settings after a
+timeout or restart. A fixed `ZTE_AGENT_BIND` override blocks IP changes. The
+confirmation endpoint accepts only the token scoped to that pending change;
+it does not require forwarding the general session token to the new address.
+
+Dashboard `sources` metadata reports the last successful sample time, age,
+refresh interval, staleness and collection error for signal, WAN, IPv6 WAN,
+thermal and data-usage sources. Failed refreshes retain the last successful
+reading and mark it stale. The UI shows source failures and charge-policy
+errors, and warns when its entire dashboard refresh fails.
+
+Signal and connection loggers share the dashboard's radio source (one-second
+minimum refresh interval). CSV files have an 8 MiB cap per logger, buffered
+writes, a 30-second maximum flush interval and an error field in logger status.
+Downloads stream a fixed-length snapshot as `text/csv`, retaining the same
+endpoint paths. The updated dashboard also understands older JSON-wrapped CSV
+responses. A logger stops on write/flush failure rather than counting failed
+writes as successful samples.
+
+Charge policy reconciles periodically even when charger events are lost. USB
+switches are serialised, abort when boot readiness cannot be established, and
+attempt to restore the previous composition and bridge after a failed switch.
+Physical USB and charging behaviour must still be checked on each supported
+firmware; local failure tests do not establish hardware compatibility.

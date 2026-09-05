@@ -25,9 +25,11 @@ struct RawAdbDevice {
 pub fn validate_gateway(gateway: &str) -> Result<String, InstallerError> {
     let gateway = gateway.trim();
     if gateway.is_empty()
-        || gateway.contains("://")
-        || gateway.contains('/')
-        || gateway.chars().any(char::is_whitespace)
+        || gateway.len() > 253
+        || gateway.starts_with('-')
+        || !gateway
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-'))
     {
         return Err(InstallerError::new(
             "The device address isn’t valid",
@@ -315,7 +317,28 @@ pub fn detect(
         );
     }
 
+    // An open TCP port is discovery only. Verify the actual selected transport
+    // before allowing a maintenance plan. Locked web devices are authenticated
+    // and identified in run_unlock before preparing a backup.
+    let identity =
+        if matches!(mode, Some(InstallMode::Ssh | InstallMode::Adb)) && !selection_required {
+            match crate::deploy::probe_identity(
+                &gateway,
+                mode.unwrap(),
+                adb_path.as_deref(),
+                selected_adb_serial.as_deref(),
+            ) {
+                Ok(identity) => Some(identity),
+                Err(error) => {
+                    problems.push(error.summary + ": " + &error.details);
+                    None
+                }
+            }
+        } else {
+            None
+        };
     let ready = mode.is_some()
+        && (mode == Some(InstallMode::Unlock) || identity.is_some())
         && !selection_required
         && !(mode == Some(InstallMode::Unlock) && adb_path.is_none())
         && !(mode == Some(InstallMode::Ssh) && find_on_path("ssh").is_none());
@@ -348,6 +371,7 @@ pub fn detect(
 
     let id = uuid::Uuid::new_v4().to_string();
     let snapshot = DetectionSnapshot {
+        identity,
         id: id.clone(),
         gateway: gateway.clone(),
         adb_path: adb_path.clone(),

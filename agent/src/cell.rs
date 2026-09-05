@@ -89,7 +89,12 @@ pub fn cell_lock_reset(_state: &AppState) -> (u16, Value) {
 pub fn cell_band_nr(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: NrBandLock = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid NR band selection: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid NR band selection: {e}")}),
+            )
+        }
     };
     if let Err(e) = parsed.validate() {
         return (400, json!({"ok": false, "error": e}));
@@ -111,7 +116,12 @@ pub fn cell_band_nr(_state: &AppState, body: &[u8]) -> (u16, Value) {
 pub fn cell_band_lte(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: LteBandLock = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid LTE band selection: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid LTE band selection: {e}")}),
+            )
+        }
     };
     if let Err(e) = parsed.validate() {
         return (400, json!({"ok": false, "error": e}));
@@ -147,10 +157,21 @@ pub fn cell_band_reset(_state: &AppState) -> (u16, Value) {
 pub fn modem_network_mode_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: NetworkMode = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid network mode: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid network mode: {e}")}),
+            )
+        }
     };
-    if !NETWORK_MODES.iter().any(|(mode, _)| *mode == parsed.net_select) {
-        return (400, json!({"ok": false, "error": "network mode is not supported by U60 Pro firmware"}));
+    if !NETWORK_MODES
+        .iter()
+        .any(|(mode, _)| *mode == parsed.net_select)
+    {
+        return (
+            400,
+            json!({"ok": false, "error": "network mode is not supported by U60 Pro firmware"}),
+        );
     }
     let payload = json!({"net_select": parsed.net_select});
     match ubus::call(
@@ -183,7 +204,9 @@ impl NrBandLock {
         }
         let bands = parse_band_list(&self.nr5g_band)?;
         if bands.iter().any(|band| !NR_BANDS.contains(band)) {
-            return Err("NR selection contains a band not supported by U60 Pro firmware".to_string());
+            return Err(
+                "NR selection contains a band not supported by U60 Pro firmware".to_string(),
+            );
         }
         Ok(())
     }
@@ -193,7 +216,10 @@ fn parse_band_list(value: &str) -> Result<Vec<u8>, String> {
     let bands: Vec<u8> = value
         .split(',')
         .map(str::trim)
-        .map(|band| band.parse::<u8>().map_err(|_| "band list must contain comma-separated numbers".to_string()))
+        .map(|band| {
+            band.parse::<u8>()
+                .map_err(|_| "band list must contain comma-separated numbers".to_string())
+        })
         .collect::<Result<_, _>>()?;
     if bands.is_empty() || bands.len() > NR_BANDS.len() {
         return Err("select at least one band".to_string());
@@ -229,7 +255,10 @@ impl LteBandLock {
             .iter()
             .fold(0_u128, |allowed, band| allowed | (1_u128 << (band - 1)));
         if mask == 0 || mask & !allowed_mask != 0 {
-            return Err("LTE mask is empty or contains a band not supported by U60 Pro firmware".to_string());
+            return Err(
+                "LTE mask is empty or contains a band not supported by U60 Pro firmware"
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -244,17 +273,33 @@ mod tests {
         assert!(LTE_BANDS.contains(&71));
         assert!(!LTE_BANDS.contains(&12));
         assert!(NR_BANDS.contains(&79));
-        assert!(NETWORK_MODES.iter().any(|(mode, _)| *mode == "WCDMA_AND_LTE"));
+        assert!(NETWORK_MODES
+            .iter()
+            .any(|(mode, _)| *mode == "WCDMA_AND_LTE"));
     }
 
     #[test]
     fn band_validation_rejects_unsupported_choices() {
-        assert!(NrBandLock { nr5g_type: "SA".into(), nr5g_band: "1,78".into() }.validate().is_ok());
-        assert!(NrBandLock { nr5g_type: "SA".into(), nr5g_band: "12".into() }.validate().is_err());
+        assert!(NrBandLock {
+            nr5g_type: "SA".into(),
+            nr5g_band: "1,78".into()
+        }
+        .validate()
+        .is_ok());
+        assert!(NrBandLock {
+            nr5g_type: "SA".into(),
+            nr5g_band: "12".into()
+        }
+        .validate()
+        .is_err());
         let valid_mask = ((1_u128 << 0) | (1_u128 << 70)).to_string();
         assert!(LteBandLock {
-            is_lte_band: "1".into(), lte_band_mask: valid_mask,
-            is_gw_band: "0".into(), gw_band_mask: "0".into(),
-        }.validate().is_ok());
+            is_lte_band: "1".into(),
+            lte_band_mask: valid_mask,
+            is_gw_band: "0".into(),
+            gw_band_mask: "0".into(),
+        }
+        .validate()
+        .is_ok());
     }
 }

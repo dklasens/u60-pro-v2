@@ -15,9 +15,8 @@ use tar::Archive;
 use tauri::{AppHandle, Emitter};
 
 use crate::device::{adb_args, compatible_adb_devices};
-use crate::model::{
-    InstallMode, InstallOutcome, InstallRequest, InstallerError, Operation, ProgressEvent,
-};
+use crate::identity::{Identity, PROBE};
+use crate::model::{InstallMode, InstallOutcome, InstallRequest, InstallerError, ProgressEvent};
 use crate::process::{find_on_path, output_text, run};
 use crate::unlock;
 
@@ -73,7 +72,8 @@ impl Reporter {
     }
 }
 
-enum Channel {
+#[derive(Clone)]
+pub(crate) enum Channel {
     Adb {
         executable: PathBuf,
         serial: String,
@@ -93,13 +93,27 @@ impl Channel {
         }
     }
 
-    fn shell(&self, command: &str, check: bool) -> Result<String, InstallerError> {
+    pub(crate) fn shell(&self, command: &str, check: bool) -> Result<String, InstallerError> {
+        self.shell_timeout(command, check, Duration::from_secs(60))
+    }
+    fn shell_timeout(
+        &self,
+        command: &str,
+        check: bool,
+        timeout: Duration,
+    ) -> Result<String, InstallerError> {
         match self {
             Self::Adb { executable, serial } => {
                 let marker = "__MU5250_RC__";
                 let wrapped = format!("({command}); printf '\\n{marker}%s\\n' $?");
                 let args = adb_args(serial, &["shell", &wrapped]);
-                let output = run(executable, &args, None, "an ADB command")?;
+                let output = crate::process::run_timeout(
+                    executable,
+                    &args,
+                    None,
+                    "an ADB command",
+                    timeout,
+                )?;
                 let (stdout, stderr) = output_text(&output);
                 let marker_index = stdout.rfind(marker);
                 let (body, remote_code) = marker_index.map_or((stdout.as_str(), 1), |index| {
@@ -126,7 +140,13 @@ impl Channel {
                 known_hosts,
             } => {
                 let args = ssh_args(gateway, known_hosts, command);
-                let output = run(executable, &args, None, "an SSH command")?;
+                let output = crate::process::run_timeout(
+                    executable,
+                    &args,
+                    None,
+                    "an SSH command",
+                    timeout,
+                )?;
                 let (stdout, stderr) = output_text(&output);
                 if check && !output.status.success() {
                     return Err(InstallerError::new(
@@ -140,7 +160,7 @@ impl Channel {
         }
     }
 
-    fn push(&self, local: &Path, remote: &str) -> Result<(), InstallerError> {
+    pub(crate) fn push(&self, local: &Path, remote: &str) -> Result<(), InstallerError> {
         match self {
             Self::Adb { executable, serial } => {
                 let args = vec![
@@ -249,12 +269,30 @@ fn ssh_channel(gateway: &str) -> Result<Channel, InstallerError> {
     })
 }
 
-fn ssh_up(gateway: &str) -> bool {
-    let channel = match ssh_channel(gateway) {
-        Ok(channel) => channel,
-        Err(_) => return false,
+pub(crate) fn probe_identity(
+    gateway: &str,
+    mode: InstallMode,
+    adb: Option<&Path>,
+    serial: Option<&str>,
+) -> Result<Identity, InstallerError> {
+    let channel = match mode {
+        InstallMode::Adb => Channel::Adb {
+            executable: adb
+                .ok_or_else(|| InstallerError::internal("device verification", "ADB missing"))?
+                .to_owned(),
+            serial: serial
+                .ok_or_else(|| InstallerError::internal("device verification", "serial missing"))?
+                .into(),
+        },
+        InstallMode::Ssh => ssh_channel(gateway)?,
+        InstallMode::Unlock => {
+            return Err(InstallerError::internal(
+                "device verification",
+                "locked devices require authenticated web identity",
+            ))
+        }
     };
-    channel.shell("true", true).is_ok()
+    Identity::from_probe(&channel.shell(PROBE, false)?)
 }
 
 fn shell_quote(value: &str) -> String {
@@ -359,19 +397,22 @@ fn download(url: &str, destination: &Path) -> Result<Vec<u8>, InstallerError> {
         .user_agent("open-u60-pro-installer")
         .build()
         .map_err(|error| InstallerError::internal("creating the download client", error))?;
-    let bytes = client
+    let response = client
         .get(url)
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
-        .and_then(reqwest::blocking::Response::bytes)
-        .map_err(|error| {
-            InstallerError::new(
-                "An installation file could not be downloaded",
-                "Check the internet connection and try again.",
-                format!("GET {url}: {error}"),
-            )
-        })?
-        .to_vec();
+        .map_err(|error| InstallerError::internal("downloading installation file", error))?;
+    let mut bytes = Vec::new();
+    response
+        .take(crate::bundle::MAX_DOWNLOAD + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| InstallerError::internal("reading installation download", error))?;
+    if bytes.len() as u64 > crate::bundle::MAX_DOWNLOAD {
+        return Err(InstallerError::internal(
+            "downloading installation file",
+            "file exceeds 64 MiB",
+        ));
+    }
     fs::write(destination, &bytes)
         .map_err(|error| InstallerError::internal("saving a download", error))?;
     Ok(bytes)
@@ -381,12 +422,27 @@ fn fetch_release_assets(
     release: &ReleaseAssets,
     work: &Path,
     reporter: &Reporter,
+    offline: Option<&Path>,
 ) -> Result<HashMap<String, PathBuf>, InstallerError> {
+    let fetch = |name: &str, url: &str| -> Result<Vec<u8>, InstallerError> {
+        if let Some(bundle) = offline {
+            let bytes = crate::bundle::read_limited(&bundle.join(name))?;
+            fs::write(work.join(name), &bytes)
+                .map_err(|e| InstallerError::internal("copying offline artifact", e))?;
+            Ok(bytes)
+        } else {
+            download(url, &work.join(name))
+        }
+    };
     reporter.log(format!("[*] Using release {}", release.tag));
     reporter.log("[*] Downloading release checksums…");
-    let sums_bytes = download(
-        &release.urls["sha256sums.txt"],
-        &work.join("sha256sums.txt"),
+    let sums_bytes = fetch(
+        "sha256sums.txt",
+        release
+            .urls
+            .get("sha256sums.txt")
+            .map(String::as_str)
+            .unwrap_or_default(),
     )?;
     let sums_text = String::from_utf8_lossy(&sums_bytes);
     let sums = sums_text
@@ -409,7 +465,14 @@ fn fetch_release_assets(
         })?;
         reporter.log(format!("[*] Downloading {name}…"));
         let path = work.join(name);
-        let bytes = download(&release.urls[name], &path)?;
+        let bytes = fetch(
+            name,
+            release
+                .urls
+                .get(name)
+                .map(String::as_str)
+                .unwrap_or_default(),
+        )?;
         let actual = hex::encode(Sha256::digest(&bytes));
         if &actual != expected {
             return Err(InstallerError::new(
@@ -418,7 +481,56 @@ fn fetch_release_assets(
                 format!("{name}: expected {expected}, received {actual}"),
             ));
         }
+        if name == "dashboard-dist.tar.gz" {
+            crate::bundle::validate_dashboard(&bytes)?;
+        } else {
+            crate::bundle::validate_agent(&bytes)?;
+        }
         reporter.log(format!("[+] {name} verified (SHA-256 {}…)", &actual[..16]));
+        files.insert(name.into(), path);
+    }
+    for (name, url, checksum) in [
+        ("dropbear", DROPBEAR_URL, DROPBEAR_SHA256),
+        ("uhttpd", DASHBOARD_HTTPD_URL, DASHBOARD_HTTPD_SHA256),
+    ] {
+        reporter.log(format!(
+            "[*] Downloading and verifying {name} before deployment…"
+        ));
+        let ipk = fetch(&format!("{name}.ipk"), url)?;
+        verify_pinned_download(&ipk, checksum, name)?;
+        let data = extract_ipk_data(&ipk, name)?;
+        // The pinned Dropbear IPK uses symlinks to one multicall binary.
+        // Copy that regular file under each argv[0] name; materialise no archive links.
+        let programs: &[(&str, &str)] = if name == "dropbear" {
+            &[
+                ("usr/sbin/dropbear", "dropbear"),
+                ("usr/sbin/dropbear", "dbclient"),
+                ("usr/sbin/dropbear", "dropbearkey"),
+            ]
+        } else {
+            &[("usr/sbin/uhttpd", "dashboard-uhttpd")]
+        };
+        for (source, destination) in programs {
+            let bytes = crate::bundle::package_file(&data, source)?;
+            let path = work.join(destination);
+            fs::write(&path, bytes)
+                .map_err(|e| InstallerError::internal("saving verified package binary", e))?;
+            files.insert((*destination).into(), path);
+        }
+    }
+    for (name, contents) in [
+        (
+            "start_dropbear.sh",
+            include_str!("../../../scripts/device/start-dropbear.sh"),
+        ),
+        (
+            "start_dashboard.sh",
+            include_str!("../../../scripts/device/start-dashboard.sh"),
+        ),
+    ] {
+        let path = work.join(name);
+        fs::write(&path, contents)
+            .map_err(|e| InstallerError::internal("preparing service script", e))?;
         files.insert(name.into(), path);
     }
     Ok(files)
@@ -431,16 +543,19 @@ fn startup_script(password: &str, pin: &str) -> String {
     ];
     if !pin.is_empty() {
         lines.push(format!("export ZTE_AGENT_PIN={}", shell_quote(pin)));
+    } else {
+        lines.push("unset ZTE_AGENT_PIN".into());
     }
     lines.extend([
         "# Log via syslog (logd's fixed-size ring buffer) rather than a file on /tmp:".into(),
         "# Read it back with: logread -e zte-agent".into(),
-        "nohup sh -c '/data/zte-agent 2>&1 | logger -t zte-agent' >/dev/null 2>&1 </dev/null &"
+        "trap '' HUP\nnohup sh -c '/data/zte-agent 2>&1 | logger -t zte-agent' >/dev/null 2>&1 </dev/null &"
             .into(),
     ]);
     format!("{}\n", lines.join("\n"))
 }
 
+#[cfg(test)]
 fn adb_agent_login_command(gateway: &str, password: &str) -> String {
     let payload = json!({ "password": password }).to_string();
     format!(
@@ -450,33 +565,102 @@ fn adb_agent_login_command(gateway: &str, password: &str) -> String {
     )
 }
 
+fn agent_json(
+    channel: &Channel,
+    _gateway: &str,
+    path: &str,
+    payload: Option<Value>,
+    token: Option<&str>,
+    mobile: bool,
+) -> Option<Value> {
+    let gateway = channel
+        .shell("uci -q get zwrt_router.network.lan_ipaddr", false)
+        .ok()?;
+    if !gateway
+        .parse::<std::net::Ipv4Addr>()
+        .is_ok_and(|ip| ip.is_private())
+    {
+        return None;
+    }
+    let mut command = format!(
+        "/usr/bin/curl --fail --silent --show-error --connect-timeout 5 --max-time 10 {}",
+        shell_quote(&format!("http://{gateway}:9090{path}"))
+    );
+    if let Some(payload) = payload {
+        command.push_str(&format!(
+            " -H 'Content-Type: application/json' --data-binary {}",
+            shell_quote(&payload.to_string())
+        ));
+    }
+    if let Some(token) = token {
+        command.push_str(&format!(
+            " -H {}",
+            shell_quote(&format!("Authorization: Bearer {token}"))
+        ));
+    }
+    if mobile {
+        command.push_str(" -A 'Mozilla/5.0 Mobile'");
+    }
+    // False suppresses command/body details in diagnostics: those can contain
+    // credentials and bearer tokens. The JSON envelope proves success instead.
+    let response: Value = serde_json::from_str(&channel.shell(&command, false).ok()?).ok()?;
+    (response["ok"].as_bool() == Some(true)).then_some(response)
+}
 fn agent_login(channel: &Channel, gateway: &str, password: &str) -> bool {
-    let result = match channel {
-        Channel::Adb { .. } => channel.shell(&adb_agent_login_command(gateway, password), true),
-        Channel::Ssh { .. } => Client::builder()
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(10))
-            .build()
-            .and_then(|client| {
-                client
-                    .post(format!("http://{gateway}:9090/api/auth/login"))
-                    .json(&json!({ "password": password }))
-                    .send()
-            })
-            .and_then(reqwest::blocking::Response::error_for_status)
-            .and_then(reqwest::blocking::Response::text)
-            .map_err(|error| InstallerError::internal("verifying the agent", error)),
+    agent_json(
+        channel,
+        gateway,
+        "/api/auth/login",
+        Some(json!({"password": password})),
+        None,
+        false,
+    )
+    .is_some_and(|response| {
+        response
+            .pointer("/data/token")
+            .and_then(Value::as_str)
+            .is_some()
+    })
+}
+fn verify_agent_credentials(channel: &Channel, gateway: &str, password: &str, pin: &str) -> bool {
+    let Some(login) = agent_json(
+        channel,
+        gateway,
+        "/api/auth/login",
+        Some(json!({"password": password})),
+        None,
+        false,
+    ) else {
+        return false;
     };
-    result
-        .ok()
-        .and_then(|body| serde_json::from_str::<Value>(&body).ok())
-        .and_then(|value| {
-            value
+    let Some(token) = login.pointer("/data/token").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(device) = agent_json(channel, gateway, "/api/device", None, Some(token), false) else {
+        return false;
+    };
+    if device
+        .pointer("/data/auth/pin_enabled")
+        .and_then(Value::as_bool)
+        != Some(!pin.is_empty())
+    {
+        return false;
+    }
+    pin.is_empty()
+        || agent_json(
+            channel,
+            gateway,
+            "/api/auth/login",
+            Some(json!({"pin": pin})),
+            None,
+            true,
+        )
+        .is_some_and(|response| {
+            response
                 .pointer("/data/token")
                 .and_then(Value::as_str)
-                .map(str::to_owned)
+                .is_some()
         })
-        .is_some()
 }
 
 fn deploy_agent(
@@ -498,28 +682,32 @@ fn deploy_agent(
     )?;
     let changed = remote_sha != local_sha;
     if changed {
-        reporter.log("[*] Stopping the existing agent and copying the verified binary…");
+        reporter.log("[*] Staging and verifying the agent binary on the modem…");
+        let staged = format!("{REMOTE_BIN}.new");
+        channel.push(local, &staged)?;
+        channel.shell(&format!("test \"$(sha256sum {staged} | awk '{{print $1}}')\" = {local_sha} && chmod 700 {staged}"), true)?;
         channel.shell("killall zte-agent 2>/dev/null; sleep 1", false)?;
-        channel.push(local, REMOTE_BIN)?;
-        channel.shell(&format!("chmod +x {REMOTE_BIN}"), true)?;
+        channel.shell(&format!("mv -f {staged} {REMOTE_BIN}"), true)?;
         reporter.log("[+] Agent binary installed");
     } else {
         reporter.log("[+] Agent binary is already current");
     }
 
-    let marker = shell_quote(&format!("ZTE_AGENT_PASSWORD={}", shell_quote(password)));
-    let current = channel.shell(
-        &format!("grep -qF {marker} {STARTUP_SCRIPT} 2>/dev/null && grep -qF 'logger -t zte-agent' {STARTUP_SCRIPT} 2>/dev/null && echo OK"),
+    let desired_script = startup_script(password, pin);
+    let desired_hash = hex::encode(Sha256::digest(desired_script.as_bytes()));
+    let current_hash = channel.shell(
+        &format!("sha256sum {STARTUP_SCRIPT} 2>/dev/null | awk '{{print $1}}'"),
         false,
     )?;
-    if current.trim() != "OK" {
+    let credentials_changed = current_hash.trim() != desired_hash;
+    if credentials_changed {
         let script_path = work.join("start_zte_agent.sh");
-        fs::write(&script_path, startup_script(password, pin)).map_err(|error| {
-            InstallerError::internal("creating the agent startup script", error)
-        })?;
+        fs::write(&script_path, desired_script)
+            .map_err(|error| InstallerError::internal("creating agent startup script", error))?;
         channel.shell("mkdir -p /data/local/tmp", true)?;
-        channel.push(&script_path, STARTUP_SCRIPT)?;
-        channel.shell(&format!("chmod 700 {STARTUP_SCRIPT}"), true)?;
+        let staged = format!("{STARTUP_SCRIPT}.new");
+        channel.push(&script_path, &staged)?;
+        channel.shell(&format!("set -e\nsh -n {staged}\ntest \"$(sha256sum {staged} | awk '{{print $1}}')\" = {desired_hash}\nchmod 700 {staged}\nmv {staged} {STARTUP_SCRIPT}"), true)?;
         reporter.log("[+] Agent credentials and startup script updated");
     } else {
         reporter.log("[+] Agent startup script is already current");
@@ -537,20 +725,20 @@ fn deploy_agent(
         .trim()
         != "OK"
     {
-        channel.shell(&format!("grep -q '^exit 0' /etc/rc.local && sed -i '/^exit 0/i {rc_line}' /etc/rc.local || echo {rc_line} >> /etc/rc.local"), true)?;
+        update_rc_local(channel, &[&rc_line], false)?;
         reporter.log("[+] Agent auto-start added to rc.local");
     }
 
-    if changed || !agent_login(channel, gateway, password) {
+    if changed || credentials_changed || !agent_login(channel, gateway, password) {
         reporter.log("[*] Starting the agent…");
         channel.shell("killall zte-agent 2>/dev/null; true", false)?;
         std::thread::sleep(Duration::from_secs(1));
         channel.shell(&format!("sh {STARTUP_SCRIPT}"), true)?;
         std::thread::sleep(Duration::from_secs(2));
     }
-    if !agent_login(channel, gateway, password) {
+    if !verify_agent_credentials(channel, gateway, password, pin) {
         return Err(InstallerError::new(
-            "The agent was installed but login verification failed",
+            "The agent was installed but credential verification failed",
             "Copy the log and retry. On an already provisioned modem, check logread -e zte-agent over SSH.",
             format!("Agent login at http://{gateway}:9090/api/auth/login returned no token via {}.", channel.name()),
         ));
@@ -652,44 +840,155 @@ fn extract_ipk_data(ipk: &[u8], package: &str) -> Result<Vec<u8>, InstallerError
     ))
 }
 
-fn install_dashboard_httpd(
+fn update_rc_local(
     channel: &Channel,
-    work: &Path,
-    reporter: &Reporter,
+    lines: &[&str],
+    remove_debug: bool,
 ) -> Result<(), InstallerError> {
-    let present = channel.shell(
-        "if [ -f /data/bin/dashboard-uhttpd ] && [ -x /data/bin/dashboard-uhttpd ]; then printf '%s' PRESENT; else printf '%s' MISSING; fi",
-        false,
-    )?;
-    if present.trim() == "PRESENT" {
-        reporter.log("[+] Isolated dashboard web server is already installed");
+    let mut script = "set -e\ncp -p /etc/rc.local /etc/rc.local.open-u60-new\n".to_string();
+    for line in lines {
+        // Caller supplies fixed program-owned lines, never credentials or user input.
+        script.push_str(&format!("if ! grep -qFx {} /etc/rc.local.open-u60-new; then\n  if grep -q '^exit 0' /etc/rc.local.open-u60-new; then sed -i '/^exit 0/i {line}' /etc/rc.local.open-u60-new; else printf '%s\\n' {} >> /etc/rc.local.open-u60-new; fi\nfi\n", shell_quote(line), shell_quote(line)));
+    }
+    if remove_debug {
+        script.push_str("sed -i '/^echo [0-9] > .*usb_op$/d' /etc/rc.local.open-u60-new\n");
+    }
+    script.push_str(
+        "sh -n /etc/rc.local.open-u60-new\nmv /etc/rc.local.open-u60-new /etc/rc.local\nsync",
+    );
+    channel.shell(&script, true).map(|_| ())
+}
+
+fn install_script(
+    channel: &Channel,
+    files: &HashMap<String, PathBuf>,
+    name: &str,
+    destination: &str,
+) -> Result<(), InstallerError> {
+    let bytes = fs::read(&files[name])
+        .map_err(|e| InstallerError::internal("reading service script", e))?;
+    let checksum = hex::encode(Sha256::digest(&bytes));
+    let staged = format!("{destination}.new");
+    channel.push(&files[name], &staged)?;
+    channel.shell(&format!("set -e\ntest \"$(sha256sum {staged} | awk '{{print $1}}')\" = {checksum}\nsh -n {staged}\nchmod 700 {staged}\nmv -f {staged} {destination}"), true).map(|_| ())
+}
+
+fn install_program(
+    channel: &Channel,
+    files: &HashMap<String, PathBuf>,
+    name: &str,
+) -> Result<(), InstallerError> {
+    let checksum = hex::encode(Sha256::digest(crate::bundle::read_limited(&files[name])?));
+    let destination = format!("/data/bin/{name}");
+    let staged = format!("{destination}.new");
+    channel.shell("mkdir -p /data/bin", true)?;
+    if channel
+        .shell(
+            &format!("sha256sum {destination} 2>/dev/null | awk '{{print $1}}'"),
+            false,
+        )?
+        .trim()
+        == checksum
+    {
         return Ok(());
     }
+    channel.push(&files[name], &staged)?;
+    channel.shell(&format!("set -e\ntest \"$(sha256sum {staged} | awk '{{print $1}}')\" = {checksum}\nchmod 700 {staged}\nmv -f {staged} {destination}"), true).map(|_| ())
+}
 
-    reporter.log("[*] Downloading the isolated dashboard web server…");
-    let ipk_path = work.join("uhttpd.ipk");
-    let ipk = download(DASHBOARD_HTTPD_URL, &ipk_path)?;
-    verify_pinned_download(&ipk, DASHBOARD_HTTPD_SHA256, "dashboard web server")?;
-    let data = extract_ipk_data(&ipk, "dashboard web server")?;
-    let data_path = work.join("uhttpd-data.tar.gz");
-    fs::write(&data_path, data)
-        .map_err(|error| InstallerError::internal("saving uhttpd data.tar.gz", error))?;
-    channel.push(&data_path, "/tmp/uhttpd-data.tar.gz")?;
-    channel.shell(
-        "set -e\ncd /tmp\ntar xzf uhttpd-data.tar.gz ./usr/sbin/uhttpd\nmkdir -p /data/bin\ncp usr/sbin/uhttpd /data/bin/dashboard-uhttpd\nchmod +x /data/bin/dashboard-uhttpd\nrm -rf /tmp/usr /tmp/uhttpd-data.tar.gz",
-        true,
-    )?;
-    let verify = channel.shell(
-        "if [ -f /data/bin/dashboard-uhttpd ] && [ -x /data/bin/dashboard-uhttpd ]; then printf '%s' PRESENT; else printf '%s' MISSING; fi",
-        false,
-    )?;
-    if verify.trim() != "PRESENT" {
+fn password_auth_advertised(debug: &str) -> Result<bool, InstallerError> {
+    let methods: Vec<&str> = debug
+        .lines()
+        .filter_map(|line| {
+            line.split_once("Authentications that can continue:")
+                .map(|(_, methods)| methods.trim())
+        })
+        .collect();
+    if methods.is_empty() {
         return Err(InstallerError::new(
-            "The dashboard web server did not appear after installation",
-            "Keep the modem connected and copy the diagnostic log before retrying.",
-            format!("Explicit file/executable check returned {verify:?}"),
+            "SSH authentication policy could not be verified",
+            "Keep the modem connected and inspect the installation diagnostics.",
+            "OpenSSH did not report the authentication methods offered by the modem.",
         ));
     }
+    Ok(methods.iter().any(|line| {
+        line.split(',')
+            .any(|method| matches!(method.trim(), "password" | "keyboard-interactive"))
+    }))
+}
+
+fn verify_ssh_security(gateway: &str) -> Result<(), InstallerError> {
+    let channel = ssh_channel(gateway)?;
+    let Channel::Ssh {
+        executable,
+        known_hosts,
+        ..
+    } = channel
+    else {
+        unreachable!()
+    };
+    let mut args = ssh_args(gateway, &known_hosts, "true");
+    let key = dirs::home_dir()
+        .ok_or_else(|| InstallerError::internal("verifying SSH key", "home directory missing"))?
+        .join(".ssh/id_ed25519");
+    args.splice(
+        0..0,
+        [
+            "-i".into(),
+            key.into_os_string(),
+            "-o".into(),
+            "IdentitiesOnly=yes".into(),
+        ],
+    );
+    let positive = crate::process::run_timeout(
+        &executable,
+        &args,
+        None,
+        "verifying the installed SSH key",
+        Duration::from_secs(15),
+    )?;
+    if !positive.status.success() {
+        return Err(InstallerError::internal(
+            "verifying the installed SSH key",
+            "the configured Ed25519 key could not authenticate",
+        ));
+    }
+
+    args.splice(
+        0..0,
+        [
+            "-vv".into(),
+            "-o".into(),
+            "PubkeyAuthentication=no".into(),
+            "-o".into(),
+            "NumberOfPasswordPrompts=0".into(),
+        ],
+    );
+    let output = crate::process::run_timeout(
+        &executable,
+        &args,
+        None,
+        "SSH authentication policy verification",
+        Duration::from_secs(15),
+    )?;
+    if output.status.success()
+        || password_auth_advertised(&String::from_utf8_lossy(&output.stderr))?
+    {
+        return Err(InstallerError::new(
+            "SSH still permits password authentication",
+            "Installation has not been accepted. The previous configuration will be restored.",
+            "The modem's SSH authentication methods did not enforce key-only access.",
+        ));
+    }
+    Ok(())
+}
+
+fn install_dashboard_httpd(
+    channel: &Channel,
+    files: &HashMap<String, PathBuf>,
+    reporter: &Reporter,
+) -> Result<(), InstallerError> {
+    install_program(channel, files, "dashboard-uhttpd")?;
     reporter.log("[+] Isolated dashboard web server installed and verified");
     Ok(())
 }
@@ -697,33 +996,17 @@ fn install_dashboard_httpd(
 fn harden(
     channel: &Channel,
     gateway: &str,
-    work: &Path,
+    files: &HashMap<String, PathBuf>,
     reporter: &Reporter,
 ) -> Result<(), InstallerError> {
-    let dropbear = channel.shell("if [ -f /data/bin/dropbear ] && [ -x /data/bin/dropbear ]; then printf '%s' PRESENT; else printf '%s' MISSING; fi", false)?;
-    if dropbear.trim() == "PRESENT" {
-        reporter.log("[+] Dropbear is already installed");
-    } else {
-        reporter.log("[*] Downloading and installing Dropbear…");
-        let ipk_path = work.join("dropbear.ipk");
-        let ipk = download(DROPBEAR_URL, &ipk_path)?;
-        verify_pinned_download(&ipk, DROPBEAR_SHA256, "Dropbear")?;
-        let data = extract_ipk_data(&ipk, "Dropbear")?;
-        let data_path = work.join("data.tar.gz");
-        fs::write(&data_path, data)
-            .map_err(|error| InstallerError::internal("saving Dropbear data.tar.gz", error))?;
-        channel.push(&data_path, "/tmp/data.tar.gz")?;
-        channel.shell("cd /tmp && tar xzf data.tar.gz ./usr/sbin/dropbear ./usr/bin/dbclient ./usr/bin/dropbearkey && mkdir -p /data/bin && cp usr/sbin/dropbear usr/bin/dbclient usr/bin/dropbearkey /data/bin/ && chmod +x /data/bin/* && rm -rf /tmp/usr /tmp/data.tar.gz", true)?;
-        let verify = channel.shell("if [ -f /data/bin/dropbear ] && [ -x /data/bin/dropbear ]; then printf '%s' PRESENT; else printf '%s' MISSING; fi", false)?;
-        if verify.trim() != "PRESENT" {
-            return Err(InstallerError::new(
-                "Dropbear did not appear after installation",
-                "Keep the modem connected and copy the diagnostic log before retrying.",
-                format!("Explicit file/executable check returned {verify:?}"),
-            ));
-        }
-        reporter.log("[+] Dropbear installed and explicitly verified");
+    for name in ["dropbear", "dbclient", "dropbearkey"] {
+        install_program(channel, files, name)?;
     }
+    channel.shell(
+        "[ -f /data/bin/dropbear ] && [ -x /data/bin/dropbear ]",
+        true,
+    )?;
+    reporter.log("[+] Dropbear binaries verified");
 
     reporter.log("[*] Configuring SSH keys and persistent host keys…");
     let public_key = ensure_local_ssh_key(reporter)?;
@@ -735,30 +1018,44 @@ fn harden(
     channel.shell(&format!("grep -qF {quoted_key} /etc/dropbear/authorized_keys 2>/dev/null || echo {quoted_key} >> /etc/dropbear/authorized_keys; chmod 600 /etc/dropbear/authorized_keys"), true)?;
     channel.shell("for k in ed25519 rsa; do f=/etc/dropbear/dropbear_${k}_host_key; [ -s \"$f\" ] || /data/bin/dropbearkey -t $k -f $f >/dev/null 2>&1; done", true)?;
     channel.shell("cp /etc/dropbear/authorized_keys /etc/dropbear/dropbear_*_host_key /data/dropbear/ 2>/dev/null; chmod 600 /data/dropbear/*", true)?;
-    channel.shell("printf '#!/bin/sh\\n/data/bin/dropbear -p 2222 -r /etc/dropbear/dropbear_ed25519_host_key -r /etc/dropbear/dropbear_rsa_host_key\\n' > /data/local/tmp/start_dropbear.sh && chmod +x /data/local/tmp/start_dropbear.sh", true)?;
-
-    install_dashboard_httpd(channel, work, reporter)?;
-
-    reporter.log("[*] Configuring the isolated dashboard listener…");
-    channel.shell(
-        "set -e\nmkdir -p /data/www /data/local/tmp\nprintf '#!/bin/sh\nif [ -s /var/run/dashboard-uhttpd.pid ]; then\n  pid=$(cat /var/run/dashboard-uhttpd.pid)\n  kill \"$pid\" 2>/dev/null || true\nfi\nnohup /data/bin/dashboard-uhttpd -f -h /data/www -p 0.0.0.0:8080 -D >/tmp/dashboard-uhttpd.log 2>&1 </dev/null &\necho $! > /var/run/dashboard-uhttpd.pid\n' > /data/local/tmp/start_dashboard.sh\nchmod 700 /data/local/tmp/start_dashboard.sh\nuci -q delete uhttpd.dashboard || true\nuci commit uhttpd\n/etc/init.d/uhttpd restart",
-        true,
+    install_script(
+        channel,
+        files,
+        "start_dropbear.sh",
+        "/data/local/tmp/start_dropbear.sh",
     )?;
 
+    install_dashboard_httpd(channel, files, reporter)?;
+
+    reporter.log("[*] Configuring the isolated dashboard listener…");
+    channel.shell("mkdir -p /data/www /data/local/tmp", true)?;
+    install_script(
+        channel,
+        files,
+        "start_dashboard.sh",
+        DASHBOARD_STARTUP_SCRIPT,
+    )?;
+    channel.shell("set -e\nif uci -q get uhttpd.dashboard >/dev/null; then uci -q delete uhttpd.dashboard; uci commit uhttpd; /etc/init.d/uhttpd restart; fi", true)?;
+
     reporter.log("[*] Validating the safe rc.local startup entries…");
-    channel.shell(
-        "grep -qF 'start_zte_agent.sh' /etc/rc.local || sed -i '/^exit 0/i sh /data/local/tmp/start_zte_agent.sh' /etc/rc.local\ngrep -qF 'start_dropbear.sh' /etc/rc.local || sed -i '/^exit 0/i sh /data/local/tmp/start_dropbear.sh' /etc/rc.local\ngrep -qF 'start_dashboard.sh' /etc/rc.local || sed -i '/^exit 0/i sh /data/local/tmp/start_dashboard.sh' /etc/rc.local\nsed -i '/^echo [0-9] > .*usb_op/d' /etc/rc.local\nsh -n /etc/rc.local",
+    update_rc_local(
+        channel,
+        &[
+            "sh /data/local/tmp/start_zte_agent.sh",
+            "sh /data/local/tmp/start_dropbear.sh",
+            "sh /data/local/tmp/start_dashboard.sh",
+        ],
         true,
     )?;
     reporter.log("[+] rc.local is configured and passes its syntax check");
 
     reporter.log("[*] Starting and checking the dashboard web service…");
     channel.shell(
-        &format!("set -e\necho DASHBOARD_READY > /data/www/.installer-health\nsh {DASHBOARD_STARTUP_SCRIPT}"),
+        &format!("set -e\nroot=/data/www\nif [ -L /data/www.current ]; then root=$(readlink -f /data/www.current); fi\necho DASHBOARD_READY > \"$root/.installer-health\"\nchmod 644 \"$root/.installer-health\"\nsh {DASHBOARD_STARTUP_SCRIPT}"),
         true,
     )?;
     std::thread::sleep(Duration::from_secs(1));
-    channel.shell("test \"$(/usr/bin/curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://127.0.0.1:8080/.installer-health)\" = DASHBOARD_READY && rm -f /data/www/.installer-health", true)?;
+    channel.shell("test \"$(/usr/bin/curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://127.0.0.1:8080/.installer-health)\" = DASHBOARD_READY && rm -f /data/www/.installer-health /data/www.current/.installer-health", true)?;
     reporter.log("[+] Dashboard listener is running on port 8080");
 
     reporter.log("[*] Disabling unattended firmware updates…");
@@ -766,22 +1063,14 @@ fn harden(
     if fota.lines().any(|line| line.trim() == "0") {
         reporter.log("[+] Unattended firmware updates are disabled");
     } else {
-        reporter
-            .log("[!] Firmware update mode could not be confirmed; check it after installation");
+        return Err(InstallerError::new("Firmware auto-update could not be disabled", "Installation has not been accepted. Inspect the modem's firmware-update settings before retrying.", "dm_update_mode readback was not 0"));
     }
 
-    channel.shell(
-        "pidof dropbear >/dev/null 2>&1 || sh /data/local/tmp/start_dropbear.sh",
-        false,
-    )?;
-    std::thread::sleep(Duration::from_secs(2));
-    if ssh_up(gateway) {
-        reporter.log(format!("[+] SSH verified at root@{gateway}:2222"));
-    } else {
-        reporter.log(
-            "[!] SSH is configured but may require the final reboot before it becomes reachable",
-        );
-    }
+    channel.shell("sh /data/local/tmp/start_dropbear.sh", true)?;
+    std::thread::sleep(Duration::from_secs(1));
+    verify_ssh_security(gateway)?;
+    reporter.log(format!("[+] Key-only SSH verified at root@{gateway}:2222"));
+
     Ok(())
 }
 
@@ -791,19 +1080,23 @@ fn deploy_dashboard(
     files: &HashMap<String, PathBuf>,
     reporter: &Reporter,
 ) -> Result<(), InstallerError> {
-    reporter.log("[*] Copying the dashboard to /data/www…");
-    channel.push(
-        &files["dashboard-dist.tar.gz"],
-        "/tmp/dashboard-dist.tar.gz",
-    )?;
-    channel.shell("mkdir -p /data/www && tar xzf /tmp/dashboard-dist.tar.gz -C /data/www && cp /data/www/index.html /data/www/mobile.html && rm -f /tmp/dashboard-dist.tar.gz", true)?;
+    reporter.log("[*] Staging a complete dashboard release…");
+    let archive = &files["dashboard-dist.tar.gz"];
+    let expected =
+        hex::encode(Sha256::digest(fs::read(archive).map_err(|e| {
+            InstallerError::internal("reading dashboard archive", e)
+        })?));
+    let version = uuid::Uuid::new_v4().to_string();
+    let root = format!("/data/open-u60-dashboards/{version}");
+    channel.push(archive, "/tmp/dashboard-dist.tar.gz")?;
+    channel.shell(&format!("set -e\ntest \"$(sha256sum /tmp/dashboard-dist.tar.gz | awk '{{print $1}}')\" = {expected}\nmkdir -p {root}\ntar xzf /tmp/dashboard-dist.tar.gz -C {root}\ntest -s {root}/index.html\ncp {root}/index.html {root}/mobile.html\nchmod -R a+rX {root}\nrm -f /data/www.current.new\nln -s {root} /data/www.current.new\nmv -Tf /data/www.current.new /data/www.current\nrm -f /tmp/dashboard-dist.tar.gz"), true)?;
     channel.shell(&format!("sh {DASHBOARD_STARTUP_SCRIPT}"), true)?;
     std::thread::sleep(Duration::from_secs(1));
     let page = channel.shell("/usr/bin/curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://127.0.0.1:8080/", true)?;
     if !page.contains("<div id=\"root\"></div>") {
         return Err(InstallerError::new(
             "The dashboard was copied but its verification page was unexpected",
-            "The previous dashboard files remain on the modem. Copy the log before retrying.",
+            "The deployment transaction will restore the previous dashboard. Copy the diagnostic details before retrying.",
             format!(
                 "First response bytes: {}",
                 page.chars().take(500).collect::<String>()
@@ -814,15 +1107,83 @@ fn deploy_dashboard(
     Ok(())
 }
 
+fn storage_preflight(
+    channel: &Channel,
+    files: &HashMap<String, PathBuf>,
+    reporter: &Reporter,
+) -> Result<(), InstallerError> {
+    let dashboard = crate::bundle::validate_dashboard(&crate::bundle::read_limited(
+        &files["dashboard-dist.tar.gz"],
+    )?)?;
+    let payload = files
+        .values()
+        .try_fold(0_u64, |sum, path| fs::metadata(path).map(|m| sum + m.len()))
+        .map_err(|e| InstallerError::internal("sizing installation files", e))?;
+    let output = channel.shell("set -e\nfor tool in sh sha256sum tar cp mv readlink awk df du sync ubus uci; do command -v \"$tool\" >/dev/null; done\ntest -x /usr/bin/curl\nsh -n /etc/rc.local\ntest -w /data\ntest -w /etc\ntest ! -e /data/local/tmp/open-u60-transactions/active\ntest ! -d /data/local/tmp/open-u60-transactions/lock\ndf -Pk /data | awk 'END {print $4}'\ndf -Pk /tmp | awk 'END {print $4}'\ndf -Pk /etc | awk 'END {print $4}'\n(du -sk /data/zte-agent /data/www /data/www.current /data/bin /data/dropbear /data/local/tmp/start_*.sh /etc/rc.local /etc/dropbear /etc/config/uhttpd 2>/dev/null || true) | awk '{n+=$1} END {print n+0}'", true)?;
+    let values = output
+        .lines()
+        .map(str::parse::<u64>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| InstallerError::internal("reading device free space", e))?;
+    if values.len() != 4 {
+        return Err(InstallerError::internal(
+            "reading device free space",
+            "unexpected df/du output",
+        ));
+    }
+    let data_required = payload + dashboard + values[3] * 2048 + 16 * 1024 * 1024;
+    let tmp_required = payload + 16 * 1024 * 1024;
+    if values[0] * 1024 < data_required || values[1] * 1024 < tmp_required || values[2] < 2048 {
+        return Err(InstallerError::new("The modem needs more free storage before installation", "Keep the existing installation. Free space from old downloads or recovery snapshots only after saving any recovery files you need.", format!("Free KiB data/tmp/etc: {:?}; required data {data_required} bytes, tmp {tmp_required} bytes, etc 2048 KiB", &values[..3])));
+    }
+    reporter.log(format!(
+        "[+] Storage preflight passed, including snapshot and rollback space ({} MiB data budget)",
+        data_required.div_ceil(1024 * 1024)
+    ));
+    Ok(())
+}
+
+fn write_manifest(
+    channel: &Channel,
+    identity: &Identity,
+    release: &str,
+    files: &HashMap<String, PathBuf>,
+    work: &Path,
+) -> Result<(), InstallerError> {
+    let mut checksums = std::collections::BTreeMap::new();
+    for (name, path) in files {
+        checksums.insert(
+            name,
+            hex::encode(Sha256::digest(crate::bundle::read_limited(path)?)),
+        );
+    }
+    let manifest = json!({"format_version": 1, "release": release, "installer_version": env!("CARGO_PKG_VERSION"),
+        "device": identity, "files": checksums});
+    let bytes = serde_json::to_vec_pretty(&manifest)
+        .map_err(|e| InstallerError::internal("writing deployment manifest", e))?;
+    let path = work.join("installed-manifest.json");
+    fs::write(&path, &bytes)
+        .map_err(|e| InstallerError::internal("writing deployment manifest", e))?;
+    let checksum = hex::encode(Sha256::digest(&bytes));
+    channel.push(&path, "/data/open-u60-manifest.json.new")?;
+    channel.shell(&format!("set -e\ntest \"$(sha256sum /data/open-u60-manifest.json.new | awk '{{print $1}}')\" = {checksum}\nchmod 600 /data/open-u60-manifest.json.new\nmv /data/open-u60-manifest.json.new /data/open-u60-manifest.json\nsync"), true).map(|_| ())
+}
+
 pub fn perform_install(
     request: InstallRequest,
-    mode: InstallMode,
-    operation: Operation,
-    adb_path: Option<PathBuf>,
-    selected_serial: Option<String>,
+    snapshot: crate::model::DetectionSnapshot,
     work: &Path,
     reporter: Reporter,
 ) -> Result<InstallOutcome, InstallerError> {
+    let mode = snapshot
+        .mode
+        .ok_or_else(|| InstallerError::internal("reading deployment plan", "mode missing"))?;
+    let operation = snapshot
+        .operation
+        .ok_or_else(|| InstallerError::internal("reading deployment plan", "operation missing"))?;
+    let adb_path = snapshot.adb_path;
+    let selected_serial = snapshot.adb_serial;
+    let expected_identity = snapshot.identity;
     reporter.log(format!(
         "[*] {} started for {}",
         operation.label(),
@@ -830,11 +1191,43 @@ pub fn perform_install(
     ));
     reporter.log(format!("[*] Temporary workspace: {}", work.display()));
 
-    let channel = match mode {
+    reporter.active(
+        "prepare",
+        "Downloading and verifying the complete installation bundle…",
+    );
+    let offline = request
+        .bundle_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+        .map(Path::new);
+    let release = if let Some(path) = offline {
+        ReleaseAssets {
+            tag: crate::bundle::load(path)?,
+            urls: HashMap::new(),
+        }
+    } else {
+        latest_release()?
+    };
+    let files = fetch_release_assets(&release, work, &reporter, offline)?;
+    if offline.is_none() {
+        let saved = crate::bundle::export(work, &release.tag)?;
+        reporter.log(format!(
+            "[+] Verified offline bundle saved: {}",
+            saved.display()
+        ));
+    }
+    reporter.step(
+        "prepare",
+        "complete",
+        "All installation files verified before device changes",
+    );
+
+    let mut expected_identity = expected_identity;
+    let mut channel = match mode {
         InstallMode::Unlock => {
             reporter.active("unlock", "Preparing and validating the modem backup…");
             let unlock_work = work.join("unlock");
-            unlock::run_unlock(
+            let unlocked_identity = unlock::run_unlock(
                 &request.gateway,
                 &request.router_password,
                 &request.backup_suffix,
@@ -842,6 +1235,7 @@ pub fn perform_install(
                 &unlock_work,
                 &|message| reporter.log(message),
             )?;
+            expected_identity = Some(unlocked_identity);
             reporter.step("unlock", "complete", "Backup preparation complete");
             if request.dry_run {
                 for step in ["wait", "agent", "ssh", "dashboard"] {
@@ -891,42 +1285,117 @@ pub fn perform_install(
             ssh_channel(&request.gateway)?
         }
     };
-    reporter.log(format!("[+] Management channel: {}", channel.name()));
+    let actual_identity = Identity::from_probe(&channel.shell(PROBE, false)?)?;
+    expected_identity
+        .as_ref()
+        .ok_or_else(|| {
+            InstallerError::internal(
+                "verifying deployment identity",
+                "no verified identity in detection plan",
+            )
+        })?
+        .require_same(&actual_identity)?;
+    reporter.log(format!(
+        "[+] Verified {} ({}) via {}",
+        actual_identity.model,
+        actual_identity.firmware,
+        channel.name()
+    ));
 
-    reporter.active("agent", "Downloading and installing the latest agent…");
-    let release = latest_release()?;
-    let files = fetch_release_assets(&release, work, &reporter)?;
-    deploy_agent(
-        &channel,
-        &request.gateway,
-        &request.agent_password,
-        &request.agent_pin,
-        &files,
-        work,
-        &reporter,
-    )?;
-    reporter.step("agent", "complete", "Agent installed and authenticated");
-
-    reporter.active("ssh", "Configuring secure SSH access…");
-    harden(&channel, &request.gateway, work, &reporter)?;
-    reporter.step("ssh", "complete", "SSH and startup configuration complete");
-
-    reporter.active("dashboard", "Deploying and verifying the dashboard…");
-    deploy_dashboard(&channel, &request.gateway, &files, &reporter)?;
-    reporter.step("dashboard", "complete", "Dashboard deployed and verified");
-
-    if matches!(&channel, Channel::Adb { .. }) && request.reboot_after {
-        reporter.active("reboot", "Rebooting to restore normal USB tethering…");
-        channel.reboot()?;
-        reporter.step("reboot", "complete", "Reboot requested");
+    storage_preflight(&channel, &files, &reporter)?;
+    if request.dry_run {
+        reporter.log("[+] Dry run complete: device identity and installation files verified; no deployment files written");
+        return Ok(InstallOutcome {
+            result: "dryRun".into(), title: "Deployment dry run completed".into(),
+            message: format!("Verified {} ({}) and release {}. No installation files or startup settings were changed.", actual_identity.model, actual_identity.firmware, release.tag),
+            operation, dashboard_url: None, api_url: None, ssh_address: None, diagnostic_path: None,
+        });
     }
+    // Repeat after preparation: the transport must still reach the detected unit.
+    actual_identity.require_same(&Identity::from_probe(&channel.shell(PROBE, false)?)?)?;
+    let transaction =
+        crate::transaction::DeploymentTransaction::begin(&channel, &actual_identity, work)?;
+    let installation = (|| -> Result<(), InstallerError> {
+        reporter.active("agent", "Installing the verified agent…");
+        deploy_agent(
+            &channel,
+            &request.gateway,
+            &request.agent_password,
+            &request.agent_pin,
+            &files,
+            work,
+            &reporter,
+        )?;
+        reporter.step("agent", "complete", "Agent installed and authenticated");
+
+        reporter.active("ssh", "Configuring secure SSH access…");
+        harden(&channel, &request.gateway, &files, &reporter)?;
+        reporter.step("ssh", "complete", "SSH and startup configuration complete");
+
+        reporter.active("dashboard", "Deploying and verifying the dashboard…");
+        deploy_dashboard(&channel, &request.gateway, &files, &reporter)?;
+        reporter.step("dashboard", "complete", "Dashboard deployed and verified");
+
+        write_manifest(&channel, &actual_identity, &release.tag, &files, work)?;
+        if matches!(&channel, Channel::Adb { .. }) && request.reboot_after {
+            reporter.active("reboot", "Rebooting and checking startup over SSH…");
+            let previous_boot = channel.shell("cat /proc/sys/kernel/random/boot_id", true)?;
+            channel.reboot()?;
+            let deadline = Instant::now() + Duration::from_secs(180);
+            let ssh = ssh_channel(&request.gateway)?;
+            loop {
+                if Instant::now() >= deadline {
+                    return Err(InstallerError::new(
+                        "Post-reboot verification timed out",
+                        "Reconnect to the same modem and use the retained recovery snapshot.",
+                        transaction.recovery_details(),
+                    ));
+                }
+                std::thread::sleep(Duration::from_secs(3));
+                if let Ok(boot) = ssh.shell_timeout(
+                    "cat /proc/sys/kernel/random/boot_id",
+                    true,
+                    Duration::from_secs(8),
+                ) {
+                    if boot.is_empty() || boot == previous_boot {
+                        continue;
+                    }
+                    actual_identity
+                        .require_same(&Identity::from_probe(&ssh.shell(PROBE, false)?)?)?;
+                    channel = ssh.clone();
+                    if !verify_agent_credentials(
+                        &channel,
+                        &request.gateway,
+                        &request.agent_password,
+                        &request.agent_pin,
+                    ) {
+                        continue;
+                    }
+                    if channel.shell("/usr/bin/curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://127.0.0.1:8080/ | grep -q '<div id=\"root\"></div>'", true).is_err() { continue; }
+                    verify_ssh_security(&request.gateway)?;
+                    break;
+                }
+            }
+            reporter.step("reboot", "complete", "New boot, device identity, agent authentication, key-only SSH and dashboard verified");
+        }
+        transaction.complete(&channel)
+    })();
+    if let Err(mut error) = installation {
+        let recovery = transaction.restore(&channel);
+        error.guidance = match recovery {
+            Ok(()) => "The previous installation was restored. Keep the diagnostic details and detect again before retrying.".into(),
+            Err(recovery_error) => format!("Automatic recovery could not finish: {}. {}", recovery_error.summary, transaction.recovery_details()),
+        };
+        return Err(error);
+    }
+    reporter.log(format!("[+] {}", transaction.recovery_details()));
 
     reporter.log("[+] Installation completed successfully");
     Ok(InstallOutcome {
         result: "success".into(),
         title: format!("{} completed", operation.label()),
-        message: if request.reboot_after && matches!(&channel, Channel::Adb { .. }) {
-            "The modem is rebooting. Allow about 90 seconds before opening the dashboard.".into()
+        message: if request.reboot_after {
+            "The modem rebooted and its agent, SSH access and dashboard were verified.".into()
         } else {
             "The agent, secure SSH access, and dashboard are ready.".into()
         },
@@ -942,6 +1411,31 @@ pub fn perform_install(
 mod tests {
     use super::*;
 
+    #[test]
+    fn ssh_policy_requires_an_explicit_key_only_advertisement() {
+        assert!(
+            !password_auth_advertised("debug1: Authentications that can continue: publickey")
+                .unwrap()
+        );
+        assert!(password_auth_advertised(
+            "debug1: Authentications that can continue: publickey,password"
+        )
+        .unwrap());
+        assert!(password_auth_advertised(
+            "debug1: Authentications that can continue: keyboard-interactive"
+        )
+        .unwrap());
+        assert!(password_auth_advertised("connection refused").is_err());
+    }
+    #[test]
+    fn pin_changes_and_clearing_change_the_complete_startup_script() {
+        assert_ne!(
+            startup_script("password", "123456"),
+            startup_script("password", "654321")
+        );
+        assert!(startup_script("password", "").contains("unset ZTE_AGENT_PIN"));
+        assert!(!startup_script("password", "").contains("export ZTE_AGENT_PIN"));
+    }
     #[test]
     fn adb_login_uses_device_lan_address_without_forwarding() {
         let command = adb_agent_login_command("192.168.0.1", "quote'password");

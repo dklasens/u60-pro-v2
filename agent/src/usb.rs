@@ -1,7 +1,9 @@
+use crate::process::BoundedCommand;
 use std::fs;
 use std::os::unix::fs as unix_fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -23,6 +25,21 @@ const PERSIST_CONFIG_PATH: &str = "/data/local/tmp/usb_config.json";
 /// On first read we migrate the key out, so the two concerns are decoupled.
 const LEGACY_PERSIST_CONFIG_PATH: &str = "/data/local/tmp/wifi_config.json";
 const USB_DEFAULT_MODE_KEY: &str = "usb_default_mode";
+static USB_BUSY: AtomicBool = AtomicBool::new(false);
+struct SwitchGuard;
+impl SwitchGuard {
+    fn acquire() -> Result<Self, String> {
+        USB_BUSY
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| Self)
+            .map_err(|_| "another USB change is in progress".into())
+    }
+}
+impl Drop for SwitchGuard {
+    fn drop(&mut self) {
+        USB_BUSY.store(false, Ordering::Release);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Boot persistence
@@ -42,7 +59,20 @@ pub fn enforce_usb_mode_on_boot() {
     }
 
     thread::spawn(|| {
-        wait_for_usb_boot_ready(Duration::from_secs(75));
+        let Ok(_guard) = SwitchGuard::acquire() else {
+            return;
+        };
+        if let Err(error) = wait_for_usb_boot_ready(Duration::from_secs(75)) {
+            let _ = fs::write(NCM_LAST_ERROR_PATH, error);
+            return;
+        }
+        if read_mode_main_state().is_none() {
+            let _ = fs::write(
+                NCM_LAST_ERROR_PATH,
+                "power state unavailable; boot USB change skipped",
+            );
+            return;
+        }
         // Re-check: mode_main_state can still be settling early in boot, and the
         // readiness wait above can run for up to 75s.
         if is_power_off_charging() {
@@ -53,7 +83,7 @@ pub fn enforce_usb_mode_on_boot() {
             return;
         }
 
-        match switch_to_ncm_now() {
+        match transactional_switch("ncm") {
             Ok(()) => {
                 let _ = fs::remove_file(NCM_LAST_ERROR_PATH);
             }
@@ -83,7 +113,7 @@ fn is_power_off_charging_state(state: Option<&str>) -> bool {
 fn read_mode_main_state() -> Option<String> {
     let output = Command::new("uci")
         .args(["get", "zwrt_zte_mc_tmp.mode.mode_main_state"])
-        .output()
+        .bounded_output()
         .ok()?;
     if !output.status.success() {
         return None;
@@ -96,34 +126,38 @@ fn read_mode_main_state() -> Option<String> {
     }
 }
 
-fn wait_for_usb_boot_ready(max: Duration) {
-    let deadline = Instant::now() + max;
-    let mut consecutive_ready = 0;
-    while Instant::now() < deadline {
+fn wait_for_usb_boot_ready(max: Duration) -> Result<(), String> {
+    wait_until_ready(max, Duration::from_millis(250), || {
         let configfs_ready = Path::new(GADGET_DIR).exists()
             && Path::new(CONFIG_DIR).exists()
             && Path::new(NCM_FUNC).exists()
             && Path::new(MASS_STORAGE_FUNC).exists();
         let controller_ready = first_udc_name().is_some() || read_trimmed(UDC_PATH).is_some();
-        let stock_composition_ready =
-            !current_composition_functions().is_empty() || detect_active_usb_mode().is_some();
-        // Stock adds ecm0/rndis0 to br-lan at the end of its init. Once we
-        // see it bridged the stock USB stack is done tinkering, so it's
-        // safe to rebuild the gadget on top.
         let stock_bridged = bridge_members("br-lan")
             .iter()
             .any(|m| m == "ecm0" || m == "rndis0");
-        if configfs_ready && controller_ready && stock_composition_ready && stock_bridged {
-            consecutive_ready += 1;
-            // 4 × 250ms = 1s steady state, in case stock makes one more pass.
-            if consecutive_ready >= 4 {
-                return;
-            }
-        } else {
-            consecutive_ready = 0;
+        configfs_ready
+            && controller_ready
+            && !current_composition_functions().is_empty()
+            && stock_bridged
+    })
+}
+
+fn wait_until_ready(
+    max: Duration,
+    interval: Duration,
+    mut ready: impl FnMut() -> bool,
+) -> Result<(), String> {
+    let deadline = Instant::now() + max;
+    let mut consecutive = 0;
+    while Instant::now() < deadline {
+        consecutive = if ready() { consecutive + 1 } else { 0 };
+        if consecutive >= 4 {
+            return Ok(());
         }
-        thread::sleep(Duration::from_millis(250));
+        thread::sleep(interval.min(deadline.saturating_duration_since(Instant::now())));
     }
+    Err("USB readiness timed out; existing composition left unchanged".into())
 }
 
 /// Detect the currently active USB function by probing `/sys/class/net/`.
@@ -174,17 +208,20 @@ fn current_composition_functions() -> Vec<String> {
 }
 
 fn bridge_members(bridge: &str) -> Vec<String> {
-    let mut members = Vec::new();
+    checked_bridge_members(bridge).unwrap_or_default()
+}
+fn checked_bridge_members(bridge: &str) -> Result<Vec<String>, String> {
     let path = format!("/sys/class/net/{bridge}/brif");
-    let entries = match fs::read_dir(path) {
-        Ok(v) => v,
-        Err(_) => return members,
-    };
-    for entry in entries.flatten() {
-        members.push(entry.file_name().to_string_lossy().to_string());
-    }
+    let mut members = fs::read_dir(&path)
+        .map_err(|e| format!("read {path}: {e}"))?
+        .map(|entry| {
+            entry
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .map_err(|e| e.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     members.sort();
-    members
+    Ok(members)
 }
 
 fn read_trimmed(path: &str) -> Option<String> {
@@ -211,39 +248,20 @@ fn read_persisted_config() -> Value {
     {
         return value;
     }
-    // Migrate the USB key out of the legacy Wi-Fi snapshot file on first read.
-    let legacy = match fs::read_to_string(LEGACY_PERSIST_CONFIG_PATH) {
-        Ok(s) => s,
-        Err(_) => return json!({}),
-    };
-    let mut parsed: Value = match serde_json::from_str(&legacy) {
-        Ok(v) => v,
-        Err(_) => return json!({}),
-    };
-    let Some(legacy_obj) = parsed.as_object_mut() else {
-        return json!({});
-    };
-    let Some(value) = legacy_obj.remove(USB_DEFAULT_MODE_KEY) else {
-        return json!({});
-    };
-    let migrated = json!({ USB_DEFAULT_MODE_KEY: value });
-    let _ = fs::write(
-        PERSIST_CONFIG_PATH,
-        serde_json::to_string(&migrated).unwrap_or_default(),
-    );
-    let _ = fs::write(
-        LEGACY_PERSIST_CONFIG_PATH,
-        serde_json::to_string(&parsed).unwrap_or_default(),
-    );
-    migrated
+    // Read the old key without rewriting unrelated Wi-Fi state. The next
+    // explicit USB settings update writes the dedicated file atomically.
+    fs::read_to_string(LEGACY_PERSIST_CONFIG_PATH)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| value.get(USB_DEFAULT_MODE_KEY).cloned())
+        .map(|value| json!({USB_DEFAULT_MODE_KEY: value}))
+        .unwrap_or_else(|| json!({}))
 }
 
 fn write_persisted_config(persisted: &Value) -> Result<(), String> {
-    fs::write(
-        PERSIST_CONFIG_PATH,
-        serde_json::to_string(persisted).map_err(|e| format!("encode persistence config: {e}"))?,
-    )
-    .map_err(|e| format!("write {PERSIST_CONFIG_PATH}: {e}"))
+    let bytes = serde_json::to_vec(persisted).map_err(|e| e.to_string())?;
+    crate::storage::atomic_write(Path::new(PERSIST_CONFIG_PATH), &bytes)
+        .map_err(|e| format!("write USB config: {e}"))
 }
 
 fn parse_usb_default_mode(persisted: &Value) -> Option<&'static str> {
@@ -445,7 +463,9 @@ pub fn usb_mode_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
         if let Err(e) = preflight_ncm_switch() {
             return (400, json!({"ok": false, "error": e}));
         }
-        schedule_ncm_switch();
+        if let Err(error) = schedule_switch("ncm") {
+            return (409, json!({"ok": false, "error": error}));
+        }
         return (
             202,
             json!({
@@ -464,7 +484,9 @@ pub fn usb_mode_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
         if let Err(e) = preflight_ecm_switch() {
             return (400, json!({"ok": false, "error": e}));
         }
-        schedule_ecm_switch();
+        if let Err(error) = schedule_switch("ecm") {
+            return (409, json!({"ok": false, "error": error}));
+        }
         return (
             202,
             json!({
@@ -478,13 +500,28 @@ pub fn usb_mode_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
         );
     }
 
-    match ubus::call("zwrt_bsp.usb", "set", Some(&parsed.to_string())) {
+    if !["ecm", "rndis"].contains(&mode) {
+        return (400, json!({"ok": false, "error": "unsupported USB mode"}));
+    }
+    let _guard = match SwitchGuard::acquire() {
+        Ok(guard) => guard,
+        Err(error) => return (409, json!({"ok": false, "error": error})),
+    };
+    match ubus::call(
+        "zwrt_bsp.usb",
+        "set",
+        Some(&json!({"mode": mode}).to_string()),
+    ) {
         Ok(data) => (200, json!({"ok": true, "data": data})),
         Err(e) => (503, json!({"ok": false, "error": e})),
     }
 }
 
 pub fn usb_default_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
+    let _guard = match SwitchGuard::acquire() {
+        Ok(guard) => guard,
+        Err(error) => return (409, json!({"ok": false, "error": error})),
+    };
     let parsed: Value = match serde_json::from_slice(body) {
         Ok(v) => v,
         Err(_) => return (400, json!({"ok": false, "error": "invalid JSON"})),
@@ -642,34 +679,187 @@ fn preflight_ecm_switch() -> Result<(), String> {
     Ok(())
 }
 
-fn schedule_ncm_switch() {
-    thread::spawn(|| {
+fn schedule_switch(mode: &'static str) -> Result<(), String> {
+    let guard = SwitchGuard::acquire()?;
+    thread::spawn(move || {
+        let _guard = guard;
         thread::sleep(Duration::from_millis(1000));
-        let result = switch_to_ncm_now();
-        match result {
+        match transactional_switch(mode) {
             Ok(()) => {
                 let _ = fs::remove_file(NCM_LAST_ERROR_PATH);
             }
-            Err(e) => {
-                let _ = fs::write(NCM_LAST_ERROR_PATH, e);
+            Err(error) => {
+                let _ = fs::write(NCM_LAST_ERROR_PATH, error);
             }
         }
     });
+    Ok(())
 }
 
-fn schedule_ecm_switch() {
-    thread::spawn(|| {
-        thread::sleep(Duration::from_millis(1000));
-        let result = switch_to_ecm_now();
-        match result {
-            Ok(()) => {
-                let _ = fs::remove_file(NCM_LAST_ERROR_PATH);
-            }
-            Err(e) => {
-                let _ = fs::write(NCM_LAST_ERROR_PATH, e);
+/// Preserve the exact composition (including any firmware ADB/diagnostic links),
+/// attributes and USB bridge membership before unbinding anything.
+struct GadgetSnapshot {
+    udc: String,
+    attributes: Vec<(String, String)>,
+    links: Vec<(PathBuf, PathBuf)>,
+    bridge: Vec<String>,
+}
+impl GadgetSnapshot {
+    fn capture() -> Result<Self, String> {
+        let udc = fs::read_to_string(UDC_PATH).map_err(|e| format!("snapshot UDC: {e}"))?;
+        let mut attributes = Vec::new();
+        for suffix in [
+            "idVendor",
+            "idProduct",
+            "strings/0x409/product",
+            "configs/c.1/strings/0x409/configuration",
+            "bDeviceClass",
+            "os_desc/use",
+            "os_desc/b_vendor_code",
+            "os_desc/qw_sign",
+        ] {
+            let path = format!("{GADGET_DIR}/{suffix}");
+            if Path::new(&path).exists() {
+                attributes.push((
+                    path.clone(),
+                    fs::read_to_string(&path)
+                        .map_err(|e| format!("snapshot {path}: {e}"))?
+                        .trim()
+                        .into(),
+                ));
             }
         }
-    });
+        let mut links = Vec::new();
+        for entry in fs::read_dir(CONFIG_DIR).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            if entry.file_name().to_string_lossy().starts_with('f')
+                && entry.file_type().map_err(|e| e.to_string())?.is_symlink()
+            {
+                links.push((
+                    entry.path(),
+                    fs::read_link(entry.path()).map_err(|e| e.to_string())?,
+                ));
+            }
+        }
+        if links.is_empty() {
+            return Err("cannot snapshot an empty USB composition".into());
+        }
+        Ok(Self {
+            udc: udc.trim().into(),
+            attributes,
+            links,
+            bridge: checked_bridge_members("br-lan")?
+                .into_iter()
+                .filter(|s| is_usb_interface(s))
+                .collect(),
+        })
+    }
+    fn restore(&self) -> Result<(), String> {
+        self.restore_with(&RestoreHardware)
+    }
+    fn restore_with(&self, io: &impl RestoreIo) -> Result<(), String> {
+        let mut errors = Vec::new();
+        let mut record = |result: Result<(), String>| {
+            if let Err(error) = result {
+                errors.push(error);
+            }
+        };
+        record(io.write(UDC_PATH, ""));
+        record(io.remove_links());
+        for (path, value) in &self.attributes {
+            record(io.write(path, value));
+        }
+        for (path, target) in &self.links {
+            record(io.link(target, path));
+        }
+        // Try rebinding even if an earlier restore step failed.
+        record(io.write(UDC_PATH, &self.udc));
+        let members = match io.members() {
+            Ok(members) => members,
+            Err(e) => {
+                record(Err(e));
+                vec![]
+            }
+        };
+        for member in members.into_iter().filter(|s| is_usb_interface(s)) {
+            if !self.bridge.contains(&member) {
+                record(io.remove_member(&member));
+            }
+        }
+        for member in &self.bridge {
+            record(io.restore_member(member));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
+        }
+    }
+}
+trait RestoreIo {
+    fn write(&self, path: &str, value: &str) -> Result<(), String>;
+    fn remove_links(&self) -> Result<(), String>;
+    fn link(&self, target: &Path, path: &Path) -> Result<(), String>;
+    fn members(&self) -> Result<Vec<String>, String>;
+    fn remove_member(&self, member: &str) -> Result<(), String>;
+    fn restore_member(&self, member: &str) -> Result<(), String>;
+}
+struct RestoreHardware;
+impl RestoreIo for RestoreHardware {
+    fn write(&self, path: &str, value: &str) -> Result<(), String> {
+        fs::write(path, value).map_err(|e| format!("restore {path}: {e}"))
+    }
+    fn remove_links(&self) -> Result<(), String> {
+        remove_config_links()
+    }
+    fn link(&self, target: &Path, path: &Path) -> Result<(), String> {
+        unix_fs::symlink(target, path).map_err(|e| format!("restore {}: {e}", path.display()))
+    }
+    fn members(&self) -> Result<Vec<String>, String> {
+        checked_bridge_members("br-lan")
+    }
+    fn remove_member(&self, member: &str) -> Result<(), String> {
+        remove_bridge_member("br-lan", member)
+    }
+    fn restore_member(&self, member: &str) -> Result<(), String> {
+        wait_for_interface(member, Duration::from_secs(10))
+            .ok_or_else(|| format!("restore interface {member} did not appear"))?;
+        run_command("ifconfig", &[member, "up"])?;
+        add_bridge_member("br-lan", member)
+    }
+}
+
+fn is_usb_interface(name: &str) -> bool {
+    ["ecm", "rndis", "ncm", "usb"]
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+}
+fn with_rollback(
+    mut apply: impl FnMut() -> Result<(), String>,
+    mut restore: impl FnMut() -> Result<(), String>,
+) -> Result<(), String> {
+    match apply() {
+        Ok(()) => Ok(()),
+        Err(error) => match restore() {
+            Ok(()) => Err(format!("{error}; previous USB composition restored")),
+            Err(rollback) => Err(format!(
+                "{error}; USB restoration failed: {rollback}; reboot may be required"
+            )),
+        },
+    }
+}
+fn transactional_switch(mode: &str) -> Result<(), String> {
+    let snapshot = GadgetSnapshot::capture()?;
+    with_rollback(
+        || {
+            if mode == "ncm" {
+                switch_to_ncm_now()
+            } else {
+                switch_to_ecm_now()
+            }
+        },
+        || snapshot.restore(),
+    )
 }
 
 fn switch_to_ncm_now() -> Result<(), String> {
@@ -717,7 +907,7 @@ fn switch_to_ecm_now() -> Result<(), String> {
     let ncm_ifaces = ncm_bridge_candidates();
 
     for ifname in &ncm_ifaces {
-        let _ = remove_bridge_member("br-lan", ifname);
+        remove_bridge_member("br-lan", ifname)?;
     }
 
     fs::write(UDC_PATH, "").map_err(|e| format!("unbind UDC: {e}"))?;
@@ -749,7 +939,7 @@ fn switch_to_ecm_now() -> Result<(), String> {
     run_command("ifconfig", &["ecm0", "up"])?;
     add_bridge_member("br-lan", "ecm0")?;
     for ifname in ncm_ifaces {
-        let _ = remove_bridge_member("br-lan", &ifname);
+        remove_bridge_member("br-lan", &ifname)?;
     }
     Ok(())
 }
@@ -841,7 +1031,7 @@ fn remove_bridge_member(bridge: &str, ifname: &str) -> Result<(), String> {
 fn run_command(command: &str, args: &[&str]) -> Result<(), String> {
     let output = Command::new(command)
         .args(args)
-        .output()
+        .bounded_output()
         .map_err(|e| format!("{command} exec: {e}"))?;
     if output.status.success() {
         return Ok(());
@@ -852,4 +1042,112 @@ fn run_command(command: &str, args: &[&str]) -> Result<(), String> {
         args.join(" "),
         stderr.trim()
     ))
+}
+
+#[cfg(test)]
+mod safety_tests {
+    use super::*;
+
+    #[test]
+    fn restoration_attempts_exact_composition_and_bridge_after_each_failure() {
+        use std::cell::RefCell;
+        struct Fake {
+            actions: RefCell<Vec<String>>,
+            fail_at: usize,
+        }
+        impl Fake {
+            fn action(&self, action: String) -> Result<(), String> {
+                let mut actions = self.actions.borrow_mut();
+                actions.push(action);
+                if actions.len() == self.fail_at {
+                    Err("injected restore failure".into())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        impl RestoreIo for Fake {
+            fn write(&self, path: &str, value: &str) -> Result<(), String> {
+                self.action(format!("write {path}={value}"))
+            }
+            fn remove_links(&self) -> Result<(), String> {
+                self.action("remove links".into())
+            }
+            fn link(&self, target: &Path, path: &Path) -> Result<(), String> {
+                self.action(format!("link {} -> {}", path.display(), target.display()))
+            }
+            fn members(&self) -> Result<Vec<String>, String> {
+                Ok(vec!["ncm0".into(), "wlan0".into()])
+            }
+            fn remove_member(&self, member: &str) -> Result<(), String> {
+                self.action(format!("remove {member}"))
+            }
+            fn restore_member(&self, member: &str) -> Result<(), String> {
+                self.action(format!("restore {member}"))
+            }
+        }
+        let snapshot = GadgetSnapshot {
+            udc: "original-controller".into(),
+            attributes: vec![("product".into(), "original-product".into())],
+            links: vec![
+                (PathBuf::from("f1"), PathBuf::from("ecm")),
+                (PathBuf::from("f2"), PathBuf::from("adb")),
+            ],
+            bridge: vec!["ecm0".into()],
+        };
+        let expected = vec![
+            format!("write {UDC_PATH}="),
+            "remove links".into(),
+            "write product=original-product".into(),
+            "link f1 -> ecm".into(),
+            "link f2 -> adb".into(),
+            format!("write {UDC_PATH}=original-controller"),
+            "remove ncm0".into(),
+            "restore ecm0".into(),
+        ];
+        for fail_at in 0..=expected.len() {
+            let fake = Fake {
+                actions: RefCell::default(),
+                fail_at,
+            };
+            assert_eq!(snapshot.restore_with(&fake).is_err(), fail_at > 0);
+            assert_eq!(*fake.actions.borrow(), expected);
+        }
+    }
+    #[test]
+    fn readiness_timeout_is_a_failure() {
+        assert!(
+            wait_until_ready(Duration::from_millis(5), Duration::from_millis(1), || false).is_err()
+        );
+        assert!(
+            wait_until_ready(Duration::from_millis(50), Duration::from_millis(1), || true).is_ok()
+        );
+    }
+    #[test]
+    fn only_one_switch_can_be_reserved() {
+        let guard = SwitchGuard::acquire().unwrap();
+        assert!(SwitchGuard::acquire().is_err());
+        drop(guard);
+        assert!(SwitchGuard::acquire().is_ok());
+    }
+    #[test]
+    fn failure_restores_and_reports_restoration_failure() {
+        let restored = std::cell::Cell::new(false);
+        assert!(with_rollback(
+            || Err("bind failed".into()),
+            || {
+                restored.set(true);
+                Ok(())
+            }
+        )
+        .unwrap_err()
+        .contains("restored"));
+        assert!(restored.get());
+        assert!(with_rollback(
+            || Err("bind failed".into()),
+            || Err("restore failed".into())
+        )
+        .unwrap_err()
+        .contains("restoration failed"));
+    }
 }

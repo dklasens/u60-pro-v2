@@ -1,7 +1,10 @@
+mod bundle;
 mod deploy;
 mod device;
+mod identity;
 mod model;
 mod process;
+mod transaction;
 mod unlock;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -88,7 +91,7 @@ fn validate_install_request(
             "The saved detection snapshot was not ready or had no planned mode.",
         ));
     }
-    if request.agent_password.is_empty() {
+    if request.agent_password.is_empty() || request.agent_password.contains('\0') {
         return Err(InstallerError::new(
             "Choose an agent password",
             "This password protects dashboard and API access.",
@@ -122,13 +125,6 @@ fn validate_install_request(
             "Unlock credentials are incomplete",
             "Enter the router admin password and backup-key suffix.",
             "A locked-device request omitted routerPassword or backupSuffix.",
-        ));
-    }
-    if snapshot.mode != Some(InstallMode::Unlock) && request.dry_run {
-        return Err(InstallerError::new(
-            "Dry run only applies to locked modems",
-            "Detect the modem again to refresh the available options.",
-            "dryRun was true for a non-unlock detection.",
         ));
     }
     if snapshot.mode != Some(InstallMode::Adb) && request.reboot_after {
@@ -178,15 +174,7 @@ async fn run_install(
             .map_err(|error| InstallerError::internal("creating the temporary workspace", error))?;
         let work = temporary.path().to_owned();
         let reporter = deploy::Reporter::new(worker_app);
-        let result = deploy::perform_install(
-            request,
-            snapshot.mode.expect("validated mode"),
-            snapshot.operation.expect("validated operation"),
-            snapshot.adb_path,
-            snapshot.adb_serial,
-            &work,
-            reporter,
-        );
+        let result = deploy::perform_install(request, snapshot, &work, reporter);
         let diagnostic_path = diagnostic_mode.then(|| temporary.keep().display().to_string());
         match result {
             Ok(mut outcome) => {

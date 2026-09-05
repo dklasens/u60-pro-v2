@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::handlers::AppState;
+use crate::lan::LanSettings;
 use crate::ubus;
 use crate::validate::validate_ubus_input;
 
@@ -20,27 +21,26 @@ pub fn router_dns_get(_state: &AppState) -> (u16, Value) {
                 }
             }
             // Firmware bug: sometimes returns empty manual DNS values; fill from UCI
-            if cleaned.get("dns_mode").and_then(|v| v.as_str()) == Some("manual") {
-                if cleaned
+            if cleaned.get("dns_mode").and_then(|v| v.as_str()) == Some("manual")
+                && cleaned
                     .get("prefer_dns_manual")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .is_empty()
-                {
-                    if let Ok(v) = ubus::uci_get("network.wan.dns") {
-                        let mut parts = v.split_whitespace();
-                        if let Some(primary) = parts.next() {
-                            cleaned.insert(
-                                "prefer_dns_manual".into(),
-                                Value::String(primary.to_string()),
-                            );
-                        }
-                        if let Some(secondary) = parts.next() {
-                            cleaned.insert(
-                                "standby_dns_manual".into(),
-                                Value::String(secondary.to_string()),
-                            );
-                        }
+            {
+                if let Ok(v) = ubus::uci_get("network.wan.dns") {
+                    let mut parts = v.split_whitespace();
+                    if let Some(primary) = parts.next() {
+                        cleaned.insert(
+                            "prefer_dns_manual".into(),
+                            Value::String(primary.to_string()),
+                        );
+                    }
+                    if let Some(secondary) = parts.next() {
+                        cleaned.insert(
+                            "standby_dns_manual".into(),
+                            Value::String(secondary.to_string()),
+                        );
                     }
                 }
             }
@@ -68,7 +68,7 @@ pub fn router_dns_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     }
 }
 
-pub fn router_lan_get(_state: &AppState) -> (u16, Value) {
+pub fn router_lan_get(state: &AppState) -> (u16, Value) {
     let read = |key: &str| ubus::uci_get(key).map_err(|e| format!("cannot read {key}: {e}"));
     let result = (|| {
         let ipaddr = read("zwrt_router.network.lan_ipaddr")?;
@@ -80,6 +80,7 @@ pub fn router_lan_get(_state: &AppState) -> (u16, Value) {
             .parse::<u32>()
             .map_err(|_| "invalid zwrt_router DHCP lease time".to_string())?;
         Ok::<Value, String>(json!({
+            "transition": state.lan.status(),
             "ipaddr": ipaddr,
             "netmask": netmask,
             "dhcp_enabled": ignore != "1",
@@ -95,20 +96,15 @@ pub fn router_lan_get(_state: &AppState) -> (u16, Value) {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LanSettings {
-    ipaddr: String,
-    netmask: String,
-    dhcp_enabled: bool,
-    dhcp_start: String,
-    dhcp_end: String,
-    lease_seconds: u32,
-}
-
-fn validate_lan_settings(settings: &LanSettings) -> Result<(), String> {
-    let ip: Ipv4Addr = settings.ipaddr.parse().map_err(|_| "invalid LAN IPv4 address")?;
-    let mask: Ipv4Addr = settings.netmask.parse().map_err(|_| "invalid IPv4 netmask")?;
+pub(crate) fn validate_lan_settings(settings: &LanSettings) -> Result<(), String> {
+    let ip: Ipv4Addr = settings
+        .ipaddr
+        .parse()
+        .map_err(|_| "invalid LAN IPv4 address")?;
+    let mask: Ipv4Addr = settings
+        .netmask
+        .parse()
+        .map_err(|_| "invalid IPv4 netmask")?;
     let start: Ipv4Addr = settings
         .dhcp_start
         .parse()
@@ -118,6 +114,9 @@ fn validate_lan_settings(settings: &LanSettings) -> Result<(), String> {
         .parse()
         .map_err(|_| "invalid DHCP end address")?;
 
+    if !ip.is_private() {
+        return Err("LAN address must be a private IPv4 address".into());
+    }
     let ip = u32::from(ip);
     let mask = u32::from(mask);
     let start = u32::from(start);
@@ -128,6 +127,9 @@ fn validate_lan_settings(settings: &LanSettings) -> Result<(), String> {
     }
     let network = ip & mask;
     let broadcast = network | inverse;
+    if ip == network || ip == broadcast {
+        return Err("LAN address must be a usable host address".into());
+    }
     if start & mask != network || end & mask != network {
         return Err("DHCP range must be in the LAN subnet".to_string());
     }
@@ -143,29 +145,36 @@ fn validate_lan_settings(settings: &LanSettings) -> Result<(), String> {
     Ok(())
 }
 
-pub fn router_lan_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
+pub fn router_lan_set(state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: LanSettings = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid LAN settings: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid LAN settings: {e}")}),
+            )
+        }
     };
     if let Err(e) = validate_lan_settings(&parsed) {
         return (400, json!({"ok": false, "error": e}));
     }
-    let payload = json!({
-        "ipaddr": parsed.ipaddr,
-        "netmask": parsed.netmask,
-        "ignore": if parsed.dhcp_enabled { 0 } else { 1 },
-        "zte_start": parsed.dhcp_start,
-        "zte_end": parsed.dhcp_end,
-        "leasetime": parsed.lease_seconds.to_string(),
-    });
-    match ubus::call(
-        "zwrt_router.api",
-        "router_set_lan_para",
-        Some(&payload.to_string()),
-    ) {
-        Ok(data) => (200, json!({"ok": true, "data": data})),
-        Err(e) => (503, json!({"ok": false, "error": e})),
+    match state.lan.begin(parsed) {
+        Ok(data) => (202, json!({"ok": true, "data": data})),
+        Err(error) => (409, json!({"ok": false, "error": error})),
+    }
+}
+
+pub fn router_lan_confirm(state: &AppState, body: &[u8]) -> (u16, Value) {
+    let parsed: Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        Err(_) => return (400, json!({"ok": false, "error": "invalid confirmation"})),
+    };
+    match state
+        .lan
+        .confirm(parsed["token"].as_str().unwrap_or_default())
+    {
+        Ok(()) => (200, json!({"ok": true, "data": {"confirmed": true}})),
+        Err(error) => (409, json!({"ok": false, "error": error})),
     }
 }
 
@@ -179,12 +188,24 @@ pub fn router_apn_mode_get(_state: &AppState) -> (u16, Value) {
 pub fn router_apn_mode_set(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: ApnMode = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid APN mode: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid APN mode: {e}")}),
+            )
+        }
     };
     if parsed.apn_mode > 1 {
-        return (400, json!({"ok": false, "error": "apn_mode must be 0 (automatic) or 1 (manual)"}));
+        return (
+            400,
+            json!({"ok": false, "error": "apn_mode must be 0 (automatic) or 1 (manual)"}),
+        );
     }
-    match ubus::call("zwrt_apn_object", "set_apn_mode", Some(&json!({"apn_mode": parsed.apn_mode}).to_string())) {
+    match ubus::call(
+        "zwrt_apn_object",
+        "set_apn_mode",
+        Some(&json!({"apn_mode": parsed.apn_mode}).to_string()),
+    ) {
         Ok(data) => (200, json!({"ok": true, "data": data})),
         Err(e) => (503, json!({"ok": false, "error": e})),
     }
@@ -200,7 +221,12 @@ pub fn router_apn_profiles_get(_state: &AppState) -> (u16, Value) {
 pub fn router_apn_profiles_add(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: ManualApn = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid APN profile: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid APN profile: {e}")}),
+            )
+        }
     };
     if let Err(e) = parsed.validate() {
         return (400, json!({"ok": false, "error": e}));
@@ -213,7 +239,11 @@ pub fn router_apn_profiles_add(_state: &AppState, body: &[u8]) -> (u16, Value) {
         "pdpType": parsed.pdp_type,
         "pppAuthMode": parsed.ppp_auth_mode,
     });
-    match ubus::call("zwrt_apn_object", "add_manu_apn", Some(&payload.to_string())) {
+    match ubus::call(
+        "zwrt_apn_object",
+        "add_manu_apn",
+        Some(&payload.to_string()),
+    ) {
         Ok(data) => (200, json!({"ok": true, "data": data})),
         Err(e) => (503, json!({"ok": false, "error": e})),
     }
@@ -222,17 +252,30 @@ pub fn router_apn_profiles_add(_state: &AppState, body: &[u8]) -> (u16, Value) {
 pub fn router_apn_profiles_delete(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: ApnProfileId = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid profile id: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid profile id: {e}")}),
+            )
+        }
     };
     if let Err(e) = parsed.validate() {
         return (400, json!({"ok": false, "error": e}));
     }
     match ubus::call("zwrt_apn_object", "get_manu_apn_list", Some("{}")) {
         Ok(data) if apn_profile_is_active(&data, &parsed.profile_id) => {
-            return (409, json!({"ok": false, "error": "cannot delete the active APN profile"}));
+            return (
+                409,
+                json!({"ok": false, "error": "cannot delete the active APN profile"}),
+            );
         }
         Ok(_) => {}
-        Err(e) => return (503, json!({"ok": false, "error": format!("cannot verify active APN profile: {e}")})),
+        Err(e) => {
+            return (
+                503,
+                json!({"ok": false, "error": format!("cannot verify active APN profile: {e}")}),
+            )
+        }
     }
     let payload = json!({"profileId": parsed.profile_id});
     match ubus::call(
@@ -248,7 +291,12 @@ pub fn router_apn_profiles_delete(_state: &AppState, body: &[u8]) -> (u16, Value
 pub fn router_apn_profiles_activate(_state: &AppState, body: &[u8]) -> (u16, Value) {
     let parsed: ApnProfileId = match serde_json::from_slice(body) {
         Ok(v) => v,
-        Err(e) => return (400, json!({"ok": false, "error": format!("invalid profile id: {e}")})),
+        Err(e) => {
+            return (
+                400,
+                json!({"ok": false, "error": format!("invalid profile id: {e}")}),
+            )
+        }
     };
     if let Err(e) = parsed.validate() {
         return (400, json!({"ok": false, "error": e}));
@@ -257,7 +305,10 @@ pub fn router_apn_profiles_activate(_state: &AppState, body: &[u8]) -> (u16, Val
         .ok()
         .and_then(|v| v.get("apn_mode").and_then(Value::as_u64));
     if let Err(e) = ubus::call("zwrt_apn_object", "set_apn_mode", Some(r#"{"apn_mode":1}"#)) {
-        return (503, json!({"ok": false, "error": format!("cannot enable manual APN mode: {e}")}));
+        return (
+            503,
+            json!({"ok": false, "error": format!("cannot enable manual APN mode: {e}")}),
+        );
     }
     let payload = json!({"profileId": parsed.profile_id});
     match ubus::call(
@@ -313,12 +364,19 @@ impl ManualApn {
     }
 }
 
-fn validate_apn_text(field: &str, value: &str, max: usize, allow_empty: bool) -> Result<(), String> {
+fn validate_apn_text(
+    field: &str,
+    value: &str,
+    max: usize,
+    allow_empty: bool,
+) -> Result<(), String> {
     if !allow_empty && value.trim().is_empty() {
         return Err(format!("{field} is required"));
     }
     if value.len() > max || value.chars().any(char::is_control) {
-        return Err(format!("{field} is invalid or longer than {max} characters"));
+        return Err(format!(
+            "{field} is invalid or longer than {max} characters"
+        ));
     }
     Ok(())
 }
@@ -358,12 +416,16 @@ fn apn_profile_is_active(data: &Value, profile_id: &str) -> bool {
                     _ => false,
                 })
                 .unwrap_or(false);
-            let enabled = profile.get("isEnable").is_some_and(|enabled| match enabled {
-                Value::Bool(enabled) => *enabled,
-                Value::Number(enabled) => enabled.as_u64() == Some(1),
-                Value::String(enabled) => enabled == "1" || enabled.eq_ignore_ascii_case("true"),
-                _ => false,
-            });
+            let enabled = profile
+                .get("isEnable")
+                .is_some_and(|enabled| match enabled {
+                    Value::Bool(enabled) => *enabled,
+                    Value::Number(enabled) => enabled.as_u64() == Some(1),
+                    Value::String(enabled) => {
+                        enabled == "1" || enabled.eq_ignore_ascii_case("true")
+                    }
+                    _ => false,
+                });
             id_matches && enabled
         })
 }
@@ -405,7 +467,10 @@ mod tests {
             ppp_auth_mode: 0,
         };
         assert!(profile.validate().is_ok());
-        let invalid = ManualApn { pdp_type: 4, ..profile };
+        let invalid = ManualApn {
+            pdp_type: 4,
+            ..profile
+        };
         assert!(invalid.validate().is_err());
     }
 
@@ -417,7 +482,15 @@ mod tests {
         ]});
         assert!(apn_profile_is_active(&data, "4"));
         assert!(!apn_profile_is_active(&data, "5"));
-        assert!(ApnProfileId { profile_id: "manu1".into() }.validate().is_ok());
-        assert!(ApnProfileId { profile_id: "../../etc".into() }.validate().is_err());
+        assert!(ApnProfileId {
+            profile_id: "manu1".into()
+        }
+        .validate()
+        .is_ok());
+        assert!(ApnProfileId {
+            profile_id: "../../etc".into()
+        }
+        .validate()
+        .is_err());
     }
 }

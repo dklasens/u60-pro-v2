@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::at_cmd::AtPort;
 use crate::auth::{self, AuthState};
-use crate::cache::Cached;
+use crate::cache::{Cached, Observed, Sample};
 use crate::charge_policy::ChargeLimitEnforcer;
 use crate::connection_logger::ConnectionLogger;
 use crate::signal_logger::SignalLogger;
@@ -17,7 +17,7 @@ use crate::ubus;
 // fork+exec, so the client's poll rate is deliberately decoupled from the rate
 // at which each source is actually re-read — and concurrent clients (phone plus
 // laptop) collapse onto one refresh instead of multiplying the load.
-const SIGNAL_TTL: Duration = Duration::from_millis(2500);
+const SIGNAL_TTL: Duration = Duration::from_secs(1);
 const THERMAL_TTL: Duration = Duration::from_secs(10);
 const WAN_TTL: Duration = Duration::from_secs(30);
 const DATA_USAGE_TTL: Duration = Duration::from_secs(30);
@@ -26,21 +26,23 @@ const CYCLE_DATE_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Default)]
 pub struct DashboardCache {
-    signal: Cached<Value>,
-    wan: Cached<Value>,
-    wan6: Cached<Value>,
-    thermal: Cached<Value>,
-    data_usage: Cached<Value>,
+    wan: Observed<Value>,
+    wan6: Observed<Value>,
+    thermal: Observed<Value>,
+    data_usage: Observed<Value>,
     cycle_dates: Cached<(Option<String>, Option<String>)>,
 }
 
 pub struct AppState {
+    pub binding: Arc<crate::lan::Binding>,
+    pub lan: Arc<crate::lan::LanManager>,
     pub auth: AuthState,
     pub cpu: CpuTracker,
     pub speed: SpeedTracker,
     pub proc_tracker: ProcessTracker,
     pub at_port: AtPort,
     pub dash: DashboardCache,
+    pub radio: Arc<Observed<Value>>,
     pub charge_limit: Arc<ChargeLimitEnforcer>,
     pub signal_logger: Arc<SignalLogger>,
     pub connection_logger: Arc<ConnectionLogger>,
@@ -48,13 +50,18 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
+        let binding = Arc::new(crate::lan::Binding::new());
+        let lan = Arc::new(crate::lan::LanManager::new(binding.clone()));
         Self {
+            binding,
+            lan,
             auth: AuthState::new(),
             cpu: CpuTracker::new(),
             speed: SpeedTracker::new(),
             proc_tracker: ProcessTracker::new(),
             at_port: AtPort::new(),
             dash: DashboardCache::default(),
+            radio: Arc::new(Observed::default()),
             charge_limit: Arc::new(ChargeLimitEnforcer::new()),
             signal_logger: Arc::new(SignalLogger::new()),
             connection_logger: Arc::new(ConnectionLogger::new()),
@@ -123,11 +130,12 @@ fn is_mobile_user_agent(user_agent: &str) -> bool {
 }
 
 /// GET /api/device
-pub fn device(_state: &AppState) -> (u16, Value) {
+pub fn device(state: &AppState) -> (u16, Value) {
     let info = system::read_device_info();
     (
         200,
         json!({"ok": true, "data": {
+            "auth": {"pin_enabled": state.auth.has_pin()},
             "hostname": info.hostname,
             "uptime_secs": info.uptime_secs,
             "load_avg": info.load_avg,
@@ -324,21 +332,19 @@ pub fn dashboard(state: &AppState) -> (u16, Value) {
     let speed = state.speed.sample();
 
     // Raw ubus passthroughs — the dashboard client maps these itself.
-    let signal = cache.signal.get_or_refresh(SIGNAL_TTL, || {
-        ubus::call("zte_nwinfo_api", "nwinfo_get_netinfo", Some("{}")).unwrap_or(Value::Null)
+    let signal = read_radio(&state.radio);
+    let wan = cache.wan.read(WAN_TTL, || {
+        ubus::call("network.interface.zte_wan", "status", Some("{}"))
     });
-    let wan = cache.wan.get_or_refresh(WAN_TTL, || {
-        ubus::call("network.interface.zte_wan", "status", Some("{}")).unwrap_or(Value::Null)
+    let wan6 = cache.wan6.read(WAN_TTL, || {
+        ubus::call("network.interface.zte_wan6", "status", Some("{}"))
     });
-    let wan6 = cache.wan6.get_or_refresh(WAN_TTL, || {
-        ubus::call("network.interface.zte_wan6", "status", Some("{}")).unwrap_or(Value::Null)
-    });
-    let thermal = cache.thermal.get_or_refresh(THERMAL_TTL, || {
-        ubus::call("zwrt_bsp.thermal", "get_cpu_temp", Some("{}")).unwrap_or(Value::Null)
+    let thermal = cache.thermal.read(THERMAL_TTL, || {
+        ubus::call("zwrt_bsp.thermal", "get_cpu_temp", Some("{}"))
     });
     let data_usage = cache
         .data_usage
-        .get_or_refresh(DATA_USAGE_TTL, || read_data_usage(cache));
+        .read(DATA_USAGE_TTL, || read_data_usage_live(cache));
 
     let mut result = serde_json::Map::new();
     result.insert(
@@ -354,14 +360,27 @@ pub fn dashboard(state: &AppState) -> (u16, Value) {
     result.insert("cpu".into(), json!(cpu_usage));
     result.insert("memory".into(), json!(meminfo));
     result.insert("speed".into(), json!(speed));
-    result.insert("data_usage".into(), data_usage);
-    result.insert("signal".into(), signal);
-    result.insert("wan".into(), wan);
-    result.insert("wan6".into(), wan6);
-    result.insert("thermal".into(), thermal);
+    result.insert("data_usage".into(), data_usage.value.unwrap_or(Value::Null));
+    result.insert("signal".into(), signal.value.unwrap_or(Value::Null));
+    result.insert("wan".into(), wan.value.unwrap_or(Value::Null));
+    result.insert("wan6".into(), wan6.value.unwrap_or(Value::Null));
+    result.insert("thermal".into(), thermal.value.unwrap_or(Value::Null));
+    result.insert(
+        "sources".into(),
+        json!({
+            "signal": signal.freshness, "wan": wan.freshness, "wan6": wan6.freshness,
+            "thermal": thermal.freshness, "data_usage": data_usage.freshness,
+        }),
+    );
+    result.insert(
+        "charge_control_error".into(),
+        json!(state.charge_limit.last_error()),
+    );
     (200, json!({"ok": true, "data": result}))
 }
 
-fn read_data_usage(cache: &DashboardCache) -> Value {
-    read_data_usage_live(cache).unwrap_or_else(|e| json!({"error": e}))
+pub fn read_radio(source: &Observed<Value>) -> Sample<Value> {
+    source.read(SIGNAL_TTL, || {
+        ubus::call("zte_nwinfo_api", "nwinfo_get_netinfo", Some("{}"))
+    })
 }

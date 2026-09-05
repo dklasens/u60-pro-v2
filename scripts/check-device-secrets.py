@@ -19,7 +19,7 @@ LITERAL_SUFFIX = re.compile(
 )
 PRIVATE_KEY = re.compile(rb"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")
 TOKEN = re.compile(
-    rb"(?:ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+    rb"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
     rb"AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}|"
     rb"sk-(?:proj|svcacct)-[A-Za-z0-9_-]{20,})"
 )
