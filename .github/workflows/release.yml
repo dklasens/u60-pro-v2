@@ -94,8 +94,17 @@ jobs:
           mkdir assets
           cp artifacts/zte-agent/zte-agent assets/zte-agent
           cp artifacts/dashboard-dist/dashboard-dist.tar.gz assets/
+          python3 - <<'PYTHON'
+          import os
+          import zipfile
+          from pathlib import Path
+          images = sorted((Path('docs/images') / ('installer-' + os.environ['GITHUB_REF_NAME'])).glob('*.png'))
+          assert len(images) == 5, 'Installer wireframes are incomplete'
+          with zipfile.ZipFile('assets/installer-wireframes.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for image in images: archive.write(image, image.name)
+          PYTHON
           cd assets
-          sha256sum zte-agent dashboard-dist.tar.gz > sha256sums.txt
+          sha256sum zte-agent dashboard-dist.tar.gz installer-wireframes.zip > sha256sums.txt
           cat sha256sums.txt
 
       - name: Release notes

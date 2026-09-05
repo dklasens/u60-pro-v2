@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { open } from '@tauri-apps/plugin-dialog'
+import { useModalFocus } from './useModalFocus'
 
 type InstallMode = 'unlock' | 'adb' | 'ssh'
 type Operation = 'install' | 'repair' | 'update'
@@ -30,10 +32,11 @@ interface DetectionResult {
   planSummary: string
   ready: boolean
   problems: string[]
+  recovery: { id: string; incomplete: boolean } | null
 }
 
 interface ProgressEvent {
-  kind: 'log' | 'operation' | 'step'
+  kind: 'log' | 'operation' | 'step' | 'confirm' | 'critical'
   message: string
   step: string | null
   status: StepStatus | null
@@ -41,6 +44,9 @@ interface ProgressEvent {
 
 interface InstallOutcome {
   result: 'success' | 'dryRun'
+  deviceModel: string
+  firmware: string
+  release: string
   title: string
   message: string
   operation: Operation
@@ -129,7 +135,12 @@ function App() {
   const [agentPasswordConfirmation, setAgentPasswordConfirmation] = useState('')
   const [agentPin, setAgentPin] = useState('')
   const [showCredentials, setShowCredentials] = useState(false)
-  const [dryRun, setDryRun] = useState(false)
+  const [passwordAction, setPasswordAction] = useState<'keep' | 'replace'>('replace')
+  const [pinAction, setPinAction] = useState<'keep' | 'set' | 'remove'>('remove')
+  const [checkedSettings, setCheckedSettings] = useState('')
+  const [preview, setPreview] = useState<InstallOutcome | null>(null)
+  const [critical, setCritical] = useState(false)
+  const [closeNotice, setCloseNotice] = useState(false)
   const [bundlePath, setBundlePath] = useState('')
   const [rebootAfter, setRebootAfter] = useState(true)
   const [diagnosticMode, setDiagnosticMode] = useState(false)
@@ -140,6 +151,7 @@ function App() {
   const [activeOperation, setActiveOperation] = useState('Ready to inspect the modem')
   const [steps, setSteps] = useState<Record<string, StepStatus>>(initialSteps)
   const [logs, setLogs] = useState<string[]>([])
+  const [confirmRecovery, setConfirmRecovery] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [outcome, setOutcome] = useState<InstallOutcome | null>(null)
   const [error, setError] = useState<InstallerError | null>(null)
@@ -149,16 +161,25 @@ function App() {
   const detectionGeneration = useRef(0)
 
   useEffect(() => {
-    let dispose: (() => void) | undefined
-    listen<ProgressEvent>('installer-progress', ({ payload }) => {
-      if (payload.kind === 'log') setLogs((current) => [...current, payload.message])
-      if (payload.kind === 'operation') setActiveOperation(payload.message)
-      if (payload.step && payload.status) {
-        setSteps((current) => ({ ...current, [payload.step!]: payload.status! }))
-        if (payload.message) setActiveOperation(payload.message)
-      }
-    }).then((unlisten) => { dispose = unlisten })
-    return () => dispose?.()
+    let disposed = false
+    const disposers: (() => void)[] = []
+    const register = async () => {
+      const offProgress = await listen<ProgressEvent>('installer-progress', ({ payload }) => {
+        if (payload.kind === 'log') setLogs((current) => [...current.slice(-1999), payload.message])
+        if (payload.kind === 'operation') setActiveOperation(payload.message)
+        if (payload.kind === 'confirm') setConfirming(true)
+        if (payload.kind === 'critical') setCritical(true)
+        if (payload.step && payload.status) {
+          setSteps((current) => ({ ...current, [payload.step!]: payload.status! }))
+          if (payload.message) setActiveOperation(payload.message)
+        }
+      })
+      if (disposed) offProgress(); else disposers.push(offProgress)
+      const offClose = await listen('installer-close-blocked', () => setCloseNotice(true))
+      if (disposed) offClose(); else disposers.push(offClose)
+    }
+    void register()
+    return () => { disposed = true; disposers.forEach((dispose) => dispose()) }
   }, [])
 
   useEffect(() => {
@@ -168,7 +189,12 @@ function App() {
   useEffect(() => {
     if (initialised.current) return
     initialised.current = true
-    void detectDevice()
+    const generation = detectionGeneration.current
+    void invoke<boolean>('startup_mode').then((diagnostic) => {
+      if (generation !== detectionGeneration.current) return
+      if (diagnostic) return invoke('finish_startup_check', { frontendReady: Boolean(document.querySelector('.app-shell h1')) })
+      return detectDevice()
+    }).catch((reason) => setError(normaliseError(reason)))
   }, [])
 
   const compatibleDevices = detection?.adbDevices.filter((device) => device.compatible) ?? []
@@ -176,11 +202,11 @@ function App() {
   const isAdb = detection?.mode === 'adb'
   const canRebootAfter = isAdb || isLocked
   const operationLabel = detection?.operation ? `${detection.operation[0].toUpperCase()}${detection.operation.slice(1)}` : 'Continue'
-  const credentialsMatch = agentPassword === agentPasswordConfirmation
-  const pinValid = !agentPin || /^\d{6}$/.test(agentPin)
+  const credentialsMatch = passwordAction === 'keep' || agentPassword === agentPasswordConfirmation
+  const pinValid = pinAction !== 'set' || /^\d{6}$/.test(agentPin)
   const formValid = Boolean(
     detection?.ready
-    && agentPassword
+    && (passwordAction === 'keep' || agentPassword)
     && credentialsMatch
     && pinValid
     && (!isLocked || (routerPassword && backupSuffix)),
@@ -204,6 +230,10 @@ function App() {
       })
       if (generation !== detectionGeneration.current) return
       setDetection(result)
+      setCheckedSettings('')
+      setPreview(null)
+      setPasswordAction(result.operation === 'install' ? 'replace' : 'keep')
+      setPinAction(result.operation === 'install' ? 'remove' : 'keep')
       setActiveOperation(result.ready ? 'Detection complete — review the plan below' : 'Detection needs attention')
     } catch (reason) {
       if (generation !== detectionGeneration.current) return
@@ -216,6 +246,9 @@ function App() {
 
   function changeGateway(value: string) {
     detectionGeneration.current += 1
+    setDetecting(false)
+    setCheckedSettings('')
+    setPreview(null)
     setGateway(value)
     setDetection(null)
     setActiveOperation('Device address changed — detect again to create a new plan')
@@ -223,39 +256,56 @@ function App() {
   }
 
   function validateBeforeRun() {
-    if (!agentPassword) return 'Choose an agent password.'
+    if (passwordAction === 'replace' && !agentPassword) return 'Choose a dashboard password.'
     if (!credentialsMatch) return 'The agent password confirmation does not match.'
     if (!pinValid) return 'The optional agent PIN must be exactly six digits.'
     if (isLocked && (!routerPassword || !backupSuffix)) return 'Enter the router admin password and backup-key suffix.'
     return null
   }
 
-  function requestRun() {
-    const issue = validateBeforeRun()
-    if (issue) {
-      setError({ summary: 'Check the highlighted details', guidance: issue, details: issue, diagnosticPath: null })
-      return
-    }
-    if (isLocked && !dryRun) {
-      setConfirming(true)
-      return
-    }
-    void executeRun()
+  function settingsKey() {
+    return JSON.stringify([detection?.detectionId, gateway.trim(), passwordAction, pinAction, routerPassword, backupSuffix, agentPassword, agentPasswordConfirmation, agentPin, rebootAfter, diagnosticMode, bundlePath.trim()])
+  }
+  const checked = Boolean(preview && checkedSettings === settingsKey())
+
+  async function confirmUnlock(accepted: boolean) {
+    try {
+      await invoke('confirm_unlock', { accepted })
+      setConfirming(false)
+      if (accepted) setCritical(true)
+    } catch (reason) { setError(normaliseError(reason)) }
   }
 
-  async function executeRun() {
-    if (!detection || !detection.mode || !detection.operation) return
-    // This immutable request is the only UI state the Rust worker receives.
+  useModalFocus(Boolean(confirmRecovery || confirming || outcome || error), () => {
+    if (confirmRecovery) setConfirmRecovery(false)
+    else if (confirming) void confirmUnlock(false)
+    else if (error) setError(null)
+    else setOutcome(null)
+  })
+
+  async function recoverDevice() {
+    if (!detection?.recovery) return
+    setConfirmRecovery(false); setRunning(true); setCritical(true)
+    setActiveOperation('Restoring the previous installation…')
+    try {
+      await invoke('recover_device', { detectionId: detection.detectionId, transactionId: detection.recovery.id })
+      setActiveOperation('Recovery completed. Detect the modem again to continue.')
+      setDetection(null); setCheckedSettings(''); setPreview(null)
+    } catch (reason) { setError(normaliseError(reason)) }
+    finally { setRunning(false); setCritical(false) }
+  }
+
+  async function executeRun(dryRun: boolean) {
+    if (!detection || !detection.mode || !detection.operation || running) return
+    const issue = validateBeforeRun()
+    if (issue) { setError({ summary: 'Check your settings', guidance: issue, details: '', diagnosticPath: null }); return }
+    const key = settingsKey()
     const request = {
       detectionId: detection.detectionId,
       gateway: gateway.trim(),
       adbSerial: detection.selectedAdbSerial,
-      routerPassword,
-      backupSuffix,
-      agentPassword,
-      agentPasswordConfirmation,
-      agentPin,
-      dryRun,
+      routerPassword, backupSuffix, agentPassword, agentPasswordConfirmation, agentPin,
+      passwordAction, pinAction, dryRun,
       rebootAfter: canRebootAfter ? rebootAfter : false,
       diagnosticMode,
       bundlePath: bundlePath.trim() || null,
@@ -266,11 +316,15 @@ function App() {
     setLogs([])
     setSteps(initialSteps)
     setRunning(true)
-    setShowLog(true)
+    setCheckedSettings('')
+    setShowLog(false)
+    setCritical(false)
+    setCloseNotice(false)
     setActiveOperation(`Starting ${operationLabel.toLowerCase()}…`)
     try {
       const result = await invoke<InstallOutcome>('run_install', { request })
-      setOutcome(result)
+      if (dryRun) { setPreview(result); setCheckedSettings(key) }
+      else { setOutcome(result); setCheckedSettings(''); setPreview(null) }
       setActiveOperation(result.result === 'dryRun' ? 'Dry run completed — no device changes' : `${operationLabel} completed successfully`)
     } catch (reason) {
       const failure = normaliseError(reason)
@@ -282,7 +336,9 @@ function App() {
       })
     } finally {
       setRunning(false)
-      setDetection(null)
+      setCritical(false)
+      setConfirming(false)
+      if (!dryRun) setDetection(null)
     }
   }
 
@@ -313,7 +369,7 @@ function App() {
       <div className="content-grid">
         <section className="panel device-panel">
           <div className="section-heading">
-            <h2>Connection</h2>
+            <h2>1. Connect your modem</h2>
             <button className="secondary-button" onClick={() => void detectDevice()} disabled={detecting || running}>
               <Icon name="refresh" size={15} /> Detect
             </button>
@@ -350,8 +406,9 @@ function App() {
             <div className="empty-state"><Icon name="router" /><span>Detect the modem after changing its address or USB connection.</span></div>
           )}
 
+          {detection?.recovery && <div className="safety-note"><strong>An interrupted installation was found</strong><p>{detection.recovery.incomplete ? 'Snapshot preparation stopped before activation. Clear the incomplete preparation before checking again.' : 'Restore the saved installation before making further changes.'}</p><button className="secondary-button" disabled={running} onClick={() => setConfirmRecovery(true)}>{detection.recovery.incomplete ? 'Review incomplete preparation' : 'Restore previous installation'}</button></div>}
           {detection && (
-            <>
+            <details className="advanced-options"><summary>Connection details</summary>
               <div className="service-row" aria-label="Detected services">
                 {Object.entries(detection.services).map(([name, up]) => (
                   <span className={`service-chip ${up ? 'up' : ''}`} key={name}><i />{name.toUpperCase()}</span>
@@ -362,13 +419,13 @@ function App() {
                   {detection.problems.map((problem) => <p key={problem}><Icon name="warning" size={16} />{problem}</p>)}
                 </div>
               )}
-            </>
+            </details>
           )}
         </section>
 
         <section className="panel setup-panel">
           <div className="section-heading">
-            <h2>{detection?.operation ? `${operationLabel} options` : 'Setup'}</h2>
+            <h2>2. Check your settings</h2>
             <button className="text-button" type="button" onClick={() => setShowCredentials((value) => !value)}>
               <Icon name="eye" size={15} /> {showCredentials ? 'Hide' : 'Show'} credentials
             </button>
@@ -382,34 +439,31 @@ function App() {
               </label>
               <label className="field">
                 <span>Backup-key suffix</span>
-                <input type={showCredentials ? 'text' : 'password'} value={backupSuffix} onChange={(event) => setBackupSuffix(event.target.value)} disabled={running} autoComplete="off" />
-                <small>Used only to decrypt and rebuild this modem’s backup.</small>
+                <input type={showCredentials ? 'text' : 'password'} aria-label="Backup-key suffix" value={backupSuffix} onChange={(event) => setBackupSuffix(event.target.value)} disabled={running} autoComplete="off" />
+                <small>Used only for this modem’s backup. <button className="text-button" onClick={() => void invoke('open_help')}>Find the key in issue #8</button></small>
               </label>
             </div>
           )}
 
-          <div className="two-column-fields">
-            <label className={`field ${agentPasswordConfirmation && !credentialsMatch ? 'invalid' : ''}`}>
-              <span>Agent password</span>
-              <input type={showCredentials ? 'text' : 'password'} value={agentPassword} onChange={(event) => setAgentPassword(event.target.value)} disabled={running} autoComplete="new-password" />
-            </label>
-            <label className={`field ${agentPasswordConfirmation && !credentialsMatch ? 'invalid' : ''}`}>
-              <span>Confirm agent password</span>
-              <input type={showCredentials ? 'text' : 'password'} value={agentPasswordConfirmation} onChange={(event) => setAgentPasswordConfirmation(event.target.value)} disabled={running} autoComplete="new-password" />
-              {agentPasswordConfirmation && !credentialsMatch && <small>Passwords do not match.</small>}
-            </label>
-          </div>
-          <label className={`field pin-field ${!pinValid ? 'invalid' : ''}`}>
-            <span>Agent PIN <em>optional</em></span>
-            <input type={showCredentials ? 'text' : 'password'} inputMode="numeric" maxLength={6} value={agentPin} onChange={(event) => setAgentPin(event.target.value)} disabled={running} placeholder="6 digits" />
-            {!pinValid && <small>Use exactly six digits.</small>}
+          {detection?.operation !== 'install' && <label className="field">
+            <span>Dashboard password</span>
+            <select aria-label="Password action" value={passwordAction} disabled={running} onChange={(event) => setPasswordAction(event.target.value as 'keep' | 'replace')}>
+              <option value="keep">Keep existing password</option><option value="replace">Change password</option>
+            </select>
+          </label>}
+          {passwordAction === 'replace' && <div className="two-column-fields">
+            <label className="field"><span>Dashboard password</span><input type={showCredentials ? 'text' : 'password'} value={agentPassword} onChange={(event) => setAgentPassword(event.target.value)} disabled={running} autoComplete="new-password" /></label>
+            <label className={`field ${!credentialsMatch ? 'invalid' : ''}`}><span>Confirm dashboard password</span><input type={showCredentials ? 'text' : 'password'} aria-label="Confirm dashboard password" value={agentPasswordConfirmation} onChange={(event) => setAgentPasswordConfirmation(event.target.value)} disabled={running} autoComplete="new-password" />{!credentialsMatch && <small>Passwords do not match.</small>}</label>
+          </div>}
+          <label className="field"><span>Dashboard PIN</span>
+            <select aria-label="PIN action" value={pinAction} disabled={running} onChange={(event) => setPinAction(event.target.value as 'keep' | 'set' | 'remove')}>
+              {detection?.operation !== 'install' && <option value="keep">Keep existing PIN setting</option>}
+              <option value="remove">{detection?.operation === 'install' ? 'No PIN' : 'Remove PIN'}</option><option value="set">Set a six-digit PIN</option>
+            </select>
           </label>
+          {pinAction === 'set' && <label className={`field pin-field ${!pinValid ? 'invalid' : ''}`}><span>New PIN</span><input type={showCredentials ? 'text' : 'password'} inputMode="numeric" maxLength={6} value={agentPin} onChange={(event) => setAgentPin(event.target.value)} disabled={running} />{!pinValid && <small>Use exactly six digits.</small>}</label>}
 
           <div className="option-list">
-            <label className="check-option">
-              <input type="checkbox" checked={dryRun} onChange={(event) => setDryRun(event.target.checked)} disabled={running} />
-              <span><strong>Deployment dry run</strong><small>{isLocked ? 'Verify downloads and prepare the unlock backup without uploading it.' : 'Verify downloads and device identity without changing the device.'}</small></span>
-            </label>
             {canRebootAfter && (
               <label className="check-option">
                 <input type="checkbox" checked={rebootAfter} onChange={(event) => setRebootAfter(event.target.checked)} disabled={running} />
@@ -420,8 +474,9 @@ function App() {
               <summary>Offline bundle and diagnostics</summary>
               <label className="field">
                 <span>Offline bundle directory</span>
-                <input value={bundlePath} onChange={(event) => setBundlePath(event.target.value)} disabled={running} placeholder="Leave blank to download" />
-                <small>Use the directory printed in a previous run’s log. Its files and checksums are verified before use.</small>
+                <input value={bundlePath} onChange={(event) => setBundlePath(event.target.value)} disabled={running} placeholder="Use cached files or download" />
+                <button className="secondary-button" disabled={running} onClick={async () => { const path = await open({ directory: true, multiple: false, title: 'Choose a verified offline bundle' }); if (typeof path === 'string') setBundlePath(path) }}>Browse…</button>
+                <small>Verified downloads are reused automatically. Choose a folder to use a separate offline bundle.</small>
               </label>
               <label className="check-option">
                 <input type="checkbox" checked={diagnosticMode} onChange={(event) => setDiagnosticMode(event.target.checked)} disabled={running} />
@@ -430,9 +485,11 @@ function App() {
             </details>
           </div>
 
-          <button className="primary-button" disabled={!formValid || detecting || running} onClick={requestRun}>
-            {running ? 'Working…' : `${operationLabel}${dryRun ? ' dry run' : ''}`}
+          {checked && preview && <div className="device-summary ready"><Icon name="check" /><div><strong>{preview.deviceModel}</strong><p>{preview.firmware}</p><p>Software {preview.release} · Ready to {operationLabel.toLowerCase()}</p></div></div>}
+          <button className="primary-button" disabled={!formValid || detecting || running} onClick={() => void executeRun(!checked)}>
+            {running ? 'Working…' : checked ? `3. ${operationLabel}` : 'Check device'}
           </button>
+          <p className="button-help">Checks prepare and validate files without uploading an unlock backup or changing running settings.</p>
           {!detection?.ready && <p className="button-help">Detect a ready modem to continue.</p>}
         </section>
       </div>
@@ -466,8 +523,11 @@ function App() {
         )}
       </section>
 
+      {closeNotice && running && <p role="status" className="safety-note">Keep this window open while verification or recovery finishes.</p>}
+      {running && !critical && <button className="secondary-button" onClick={() => void invoke('stop_operation')}>Stop after current check</button>}
       <footer><Icon name="lock" size={13} /> Credentials stay on this computer and are sent only to the modem.</footer>
 
+      {confirmRecovery && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="recovery-title"><h2 id="recovery-title">{detection?.recovery?.incomplete ? 'Clear incomplete preparation?' : 'Restore the previous installation?'}</h2><p>The installer will verify the same modem and recovery record before proceeding. Keep the modem connected until recovery finishes. Retained recovery snapshots will be kept.</p><div className="modal-actions"><button className="secondary-button" onClick={() => setConfirmRecovery(false)}>Go back</button><button className="primary-button" onClick={() => void recoverDevice()}>Recover and verify</button></div></section></div>}
       {confirming && (
         <div className="modal-backdrop" role="presentation">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
@@ -476,8 +536,8 @@ function App() {
             <p>The installer will upload the verified patched backup and ask the modem to restore it. The modem will be offline for roughly 60–90 seconds.</p>
             <div className="safety-note"><strong>Safety check complete</strong><span>The restore cannot be interrupted from this app once it begins.</span></div>
             <div className="modal-actions">
-              <button className="secondary-button" onClick={() => setConfirming(false)}>Go back</button>
-              <button className="primary-button" onClick={() => void executeRun()}>Unlock and continue</button>
+              <button className="secondary-button" onClick={() => void confirmUnlock(false)}>Go back</button>
+              <button className="primary-button" onClick={() => void confirmUnlock(true)}>Unlock and continue</button>
             </div>
           </section>
         </div>
@@ -500,6 +560,7 @@ function App() {
             )}
             {outcome.diagnosticPath && <p className="diagnostic-path">Diagnostic files retained at <code>{outcome.diagnosticPath}</code></p>}
             <div className="modal-actions">
+              {outcome.result === 'success' && <button className="primary-button" onClick={() => void invoke('open_dashboard')}>Open dashboard</button>}
               {outcome.result === 'success' && <button className="secondary-button" onClick={() => void copyWithFeedback(connectionDetails)}><Icon name="copy" size={17} /> {copied ? 'Copied' : 'Copy connection details'}</button>}
               <button className="primary-button" onClick={() => setOutcome(null)}>Done</button>
             </div>

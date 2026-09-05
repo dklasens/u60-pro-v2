@@ -21,7 +21,9 @@ def main():
         versions[name + ' root package'] = lock['packages']['']['version']
     assert len(set(versions.values())) == 1, f'Release versions disagree: {versions}'
     version = next(iter(versions.values()))
-    ref = os.environ.get('GITHUB_REF', '')
+    ref = os.environ.get('RELEASE_SOURCE_REF') or os.environ.get('GITHUB_REF', '')
+    if re.fullmatch(r'v\d+\.\d+(?:\.\d+)?', ref):
+        ref = 'refs/tags/' + ref
     if ref.startswith('refs/tags/v'):
         tag_version = ref.removeprefix('refs/tags/v')
         if re.fullmatch(r'\d+\.\d+', tag_version):

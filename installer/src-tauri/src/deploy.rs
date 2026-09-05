@@ -10,7 +10,6 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use ssh_key::{Algorithm, LineEnding, PrivateKey};
 use tar::Archive;
 use tauri::{AppHandle, Emitter};
 
@@ -34,11 +33,12 @@ const DASHBOARD_STARTUP_SCRIPT: &str = "/data/local/tmp/start_dashboard.sh";
 #[derive(Clone)]
 pub struct Reporter {
     app: AppHandle,
+    control: std::sync::Arc<crate::control::Control>,
 }
 
 impl Reporter {
-    pub fn new(app: AppHandle) -> Self {
-        Self { app }
+    pub fn new(app: AppHandle, control: std::sync::Arc<crate::control::Control>) -> Self {
+        Self { app, control }
     }
 
     fn emit(
@@ -229,7 +229,7 @@ impl Channel {
 }
 
 fn ssh_args(gateway: &str, known_hosts: &Path, command: &str) -> Vec<OsString> {
-    vec![
+    let mut args = vec![
         "-p".into(),
         "2222".into(),
         "-o".into(),
@@ -237,12 +237,34 @@ fn ssh_args(gateway: &str, known_hosts: &Path, command: &str) -> Vec<OsString> {
         "-o".into(),
         "StrictHostKeyChecking=accept-new".into(),
         "-o".into(),
-        format!("UserKnownHostsFile={}", known_hosts.display()).into(),
+        format!(
+            "UserKnownHostsFile=\"{}\"",
+            known_hosts
+                .to_string_lossy()
+                .replace('\\', "/")
+                .replace('"', "\\\"")
+        )
+        .into(),
         "-o".into(),
         "ConnectTimeout=10".into(),
         format!("root@{gateway}").into(),
         command.into(),
-    ]
+    ];
+    if let Ok(key) = crate::host::key_path() {
+        if key.is_file() {
+            args.splice(0..0, ["-i".into(), key.into_os_string()]);
+            // Permit migration from earlier releases without replacing personal keys.
+            if let Some(home) = dirs::home_dir() {
+                for name in ["id_ed25519", "id_rsa", "id_ecdsa"] {
+                    let legacy = home.join(".ssh").join(name);
+                    if legacy.is_file() {
+                        args.splice(0..0, ["-i".into(), legacy.into_os_string()]);
+                    }
+                }
+            }
+        }
+    }
+    args
 }
 
 fn ssh_channel(gateway: &str) -> Result<Channel, InstallerError> {
@@ -269,12 +291,12 @@ fn ssh_channel(gateway: &str) -> Result<Channel, InstallerError> {
     })
 }
 
-pub(crate) fn probe_identity(
+pub(crate) fn management_channel(
     gateway: &str,
     mode: InstallMode,
     adb: Option<&Path>,
     serial: Option<&str>,
-) -> Result<Identity, InstallerError> {
+) -> Result<Channel, InstallerError> {
     let channel = match mode {
         InstallMode::Adb => Channel::Adb {
             executable: adb
@@ -292,7 +314,15 @@ pub(crate) fn probe_identity(
             ))
         }
     };
-    Identity::from_probe(&channel.shell(PROBE, false)?)
+    Ok(channel)
+}
+pub(crate) fn probe_identity(
+    gateway: &str,
+    mode: InstallMode,
+    adb: Option<&Path>,
+    serial: Option<&str>,
+) -> Result<Identity, InstallerError> {
+    Identity::from_probe(&management_channel(gateway, mode, adb, serial)?.shell(PROBE, false)?)
 }
 
 fn shell_quote(value: &str) -> String {
@@ -348,7 +378,10 @@ struct ReleaseAssets {
     urls: HashMap<String, String>,
 }
 
-fn latest_release() -> Result<ReleaseAssets, InstallerError> {
+fn latest_release(tag: Option<&str>) -> Result<ReleaseAssets, InstallerError> {
+    let url = tag
+        .map(|tag| format!("https://api.github.com/repos/{REPOSITORY}/releases/tags/{tag}"))
+        .unwrap_or_else(|| RELEASE_API.into());
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(60))
@@ -356,7 +389,7 @@ fn latest_release() -> Result<ReleaseAssets, InstallerError> {
         .build()
         .map_err(|error| InstallerError::internal("creating the download client", error))?;
     let release: GitHubRelease = client
-        .get(RELEASE_API)
+        .get(&url)
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
         .and_then(reqwest::blocking::Response::json)
@@ -384,6 +417,7 @@ fn latest_release() -> Result<ReleaseAssets, InstallerError> {
             ));
         }
     }
+    crate::bundle::compatible_release(&release.tag_name)?;
     Ok(ReleaseAssets {
         tag: release.tag_name,
         urls,
@@ -748,52 +782,8 @@ fn deploy_agent(
 }
 
 fn ensure_local_ssh_key(reporter: &Reporter) -> Result<String, InstallerError> {
-    let home = dirs::home_dir().ok_or_else(|| {
-        InstallerError::internal(
-            "locating the SSH key directory",
-            "home directory unavailable",
-        )
-    })?;
-    let directory = home.join(".ssh");
-    let private_path = directory.join("id_ed25519");
-    let public_path = directory.join("id_ed25519.pub");
-    if private_path.is_file() && public_path.is_file() {
-        return fs::read_to_string(public_path)
-            .map(|value| value.trim().to_owned())
-            .map_err(|error| InstallerError::internal("reading the SSH public key", error));
-    }
-    if private_path.exists() != public_path.exists() {
-        return Err(InstallerError::new(
-            "The default SSH key pair is incomplete",
-            "Repair ~/.ssh/id_ed25519 and id_ed25519.pub, or move the incomplete file aside, then retry.",
-            format!("Private key exists: {}; public key exists: {}", private_path.exists(), public_path.exists()),
-        ));
-    }
-    fs::create_dir_all(&directory)
-        .map_err(|error| InstallerError::internal("creating the SSH key directory", error))?;
-    let key = PrivateKey::random(&mut rand::rngs::OsRng, Algorithm::Ed25519)
-        .map_err(|error| InstallerError::internal("generating an Ed25519 SSH key", error))?;
-    let private = key
-        .to_openssh(LineEnding::LF)
-        .map_err(|error| InstallerError::internal("encoding the SSH private key", error))?;
-    let public = key
-        .public_key()
-        .to_openssh()
-        .map_err(|error| InstallerError::internal("encoding the SSH public key", error))?;
-    fs::write(&private_path, private.as_bytes())
-        .map_err(|error| InstallerError::internal("saving the SSH private key", error))?;
-    fs::write(&public_path, format!("{public}\n"))
-        .map_err(|error| InstallerError::internal("saving the SSH public key", error))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&private_path, fs::Permissions::from_mode(0o600))
-            .map_err(|error| InstallerError::internal("setting SSH key permissions", error))?;
-    }
-    reporter.log(format!(
-        "[+] Generated a new Ed25519 key at {}",
-        private_path.display()
-    ));
+    let public = crate::host::ensure_key()?;
+    reporter.log("[+] Dedicated installer SSH identity is ready");
     Ok(public)
 }
 
@@ -928,9 +918,10 @@ fn verify_ssh_security(gateway: &str) -> Result<(), InstallerError> {
         unreachable!()
     };
     let mut args = ssh_args(gateway, &known_hosts, "true");
-    let key = dirs::home_dir()
-        .ok_or_else(|| InstallerError::internal("verifying SSH key", "home directory missing"))?
-        .join(".ssh/id_ed25519");
+    let key = crate::host::key_path()?;
+    while let Some(index) = args.iter().position(|v| v == "-i") {
+        args.drain(index..index + 2);
+    }
     args.splice(
         0..0,
         [
@@ -1174,6 +1165,7 @@ pub fn perform_install(
     snapshot: crate::model::DetectionSnapshot,
     work: &Path,
     reporter: Reporter,
+    pinned_release: Option<String>,
 ) -> Result<InstallOutcome, InstallerError> {
     let mode = snapshot
         .mode
@@ -1182,6 +1174,7 @@ pub fn perform_install(
         .operation
         .ok_or_else(|| InstallerError::internal("reading deployment plan", "operation missing"))?;
     let adb_path = snapshot.adb_path;
+    crate::host::prerequisites(adb_path.as_deref(), &request.gateway)?;
     let selected_serial = snapshot.adb_serial;
     let expected_identity = snapshot.identity;
     reporter.log(format!(
@@ -1195,19 +1188,51 @@ pub fn perform_install(
         "prepare",
         "Downloading and verifying the complete installation bundle…",
     );
-    let offline = request
+    let explicit_offline = request
         .bundle_path
         .as_deref()
         .filter(|path| !path.trim().is_empty())
         .map(Path::new);
-    let release = if let Some(path) = offline {
+    let mut cached = None;
+    let release = if let Some(path) = explicit_offline {
         ReleaseAssets {
             tag: crate::bundle::load(path)?,
             urls: HashMap::new(),
         }
     } else {
-        latest_release()?
+        match latest_release(pinned_release.as_deref()) {
+            Ok(release) => {
+                cached = crate::bundle::find_cached(Some(&release.tag));
+                release
+            }
+            Err(error) => {
+                cached = crate::bundle::find_cached(pinned_release.as_deref());
+                if let Some(path) = &cached {
+                    reporter.log("[+] Using a previously verified offline bundle; release lookup is unavailable");
+                    ReleaseAssets {
+                        tag: crate::bundle::load(path)?,
+                        urls: HashMap::new(),
+                    }
+                } else {
+                    return Err(error);
+                }
+            }
+        }
     };
+    if pinned_release
+        .as_ref()
+        .is_some_and(|tag| tag != &release.tag)
+    {
+        return Err(InstallerError::new(
+            "The selected release changed",
+            "Check the new bundle before installing.",
+            "The install release did not match the checked release.",
+        ));
+    }
+    let offline = explicit_offline.or(cached.as_deref());
+    if cached.is_some() {
+        reporter.log("[+] Reusing cached files after checksum verification");
+    }
     let files = fetch_release_assets(&release, work, &reporter, offline)?;
     if offline.is_none() {
         let saved = crate::bundle::export(work, &release.tag)?;
@@ -1222,6 +1247,7 @@ pub fn perform_install(
         "All installation files verified before device changes",
     );
 
+    reporter.control.checkpoint()?;
     let mut expected_identity = expected_identity;
     let mut channel = match mode {
         InstallMode::Unlock => {
@@ -1234,8 +1260,17 @@ pub fn perform_install(
                 request.dry_run,
                 &unlock_work,
                 &|message| reporter.log(message),
+                &|identity| {
+                    expected_identity
+                        .as_ref()
+                        .ok_or_else(|| {
+                            InstallerError::internal("unlock check", "Checked identity missing")
+                        })?
+                        .require_same(identity)?;
+                    reporter.control.await_approval(|| reporter.emit("confirm", "The backup and all downloads have been validated. Ready to unlock and reboot?", None, None))
+                },
             )?;
-            expected_identity = Some(unlocked_identity);
+            expected_identity = Some(unlocked_identity.clone());
             reporter.step("unlock", "complete", "Backup preparation complete");
             if request.dry_run {
                 for step in ["wait", "agent", "ssh", "dashboard"] {
@@ -1243,6 +1278,8 @@ pub fn perform_install(
                 }
                 return Ok(InstallOutcome {
                     result: "dryRun".into(),
+                    verified_identity: Some(unlocked_identity.clone()),
+                    device_model: unlocked_identity.model.clone(), firmware: unlocked_identity.firmware.clone(), release: release.tag.clone(),
                     title: "Dry run completed safely".into(),
                     message: "The modem backup was downloaded, decrypted, checked, and patched in memory. Nothing was uploaded and the modem was not changed.".into(),
                     operation,
@@ -1302,10 +1339,20 @@ pub fn perform_install(
         channel.name()
     ));
 
+    let saved_script = if request.password_action == crate::model::PasswordAction::Keep
+        || request.pin_action == crate::model::PinAction::Keep
+    {
+        channel.shell(&format!("cat {STARTUP_SCRIPT}"), false)?
+    } else {
+        String::new()
+    };
+    let credentials = crate::credentials::resolve(&request, &saved_script)?;
     storage_preflight(&channel, &files, &reporter)?;
     if request.dry_run {
         reporter.log("[+] Dry run complete: device identity and installation files verified; no deployment files written");
         return Ok(InstallOutcome {
+            verified_identity: Some(actual_identity.clone()),
+        device_model: actual_identity.model.clone(), firmware: actual_identity.firmware.clone(), release: release.tag.clone(),
             result: "dryRun".into(), title: "Deployment dry run completed".into(),
             message: format!("Verified {} ({}) and release {}. No installation files or startup settings were changed.", actual_identity.model, actual_identity.firmware, release.tag),
             operation, dashboard_url: None, api_url: None, ssh_address: None, diagnostic_path: None,
@@ -1313,6 +1360,13 @@ pub fn perform_install(
     }
     // Repeat after preparation: the transport must still reach the detected unit.
     actual_identity.require_same(&Identity::from_probe(&channel.shell(PROBE, false)?)?)?;
+    reporter.control.enter_critical()?;
+    reporter.emit(
+        "critical",
+        "Keep the installer open until verification finishes.",
+        None,
+        None,
+    );
     let transaction =
         crate::transaction::DeploymentTransaction::begin(&channel, &actual_identity, work)?;
     let installation = (|| -> Result<(), InstallerError> {
@@ -1320,8 +1374,8 @@ pub fn perform_install(
         deploy_agent(
             &channel,
             &request.gateway,
-            &request.agent_password,
-            &request.agent_pin,
+            &credentials.password,
+            &credentials.pin,
             &files,
             work,
             &reporter,
@@ -1366,8 +1420,8 @@ pub fn perform_install(
                     if !verify_agent_credentials(
                         &channel,
                         &request.gateway,
-                        &request.agent_password,
-                        &request.agent_pin,
+                        &credentials.password,
+                        &credentials.pin,
                     ) {
                         continue;
                     }
@@ -1393,6 +1447,10 @@ pub fn perform_install(
     reporter.log("[+] Installation completed successfully");
     Ok(InstallOutcome {
         result: "success".into(),
+        verified_identity: Some(actual_identity.clone()),
+        device_model: actual_identity.model.clone(),
+        firmware: actual_identity.firmware.clone(),
+        release: release.tag.clone(),
         title: format!("{} completed", operation.label()),
         message: if request.reboot_after {
             "The modem rebooted and its agent, SSH access and dashboard were verified.".into()
@@ -1402,7 +1460,11 @@ pub fn perform_install(
         operation,
         dashboard_url: Some(format!("http://{}:8080", request.gateway)),
         api_url: Some(format!("http://{}:9090", request.gateway)),
-        ssh_address: Some(format!("ssh -p 2222 root@{}", request.gateway)),
+        ssh_address: Some(format!(
+            "ssh -i \"{}\" -p 2222 root@{}",
+            crate::host::key_path()?.display(),
+            request.gateway
+        )),
         diagnostic_path: None,
     })
 }
@@ -1411,6 +1473,17 @@ pub fn perform_install(
 mod tests {
     use super::*;
 
+    #[test]
+    fn ssh_known_hosts_supports_windows_paths_with_spaces() {
+        let args = ssh_args(
+            "192.168.0.1",
+            Path::new(r"C:\Users\Sample User\known_hosts"),
+            "true",
+        );
+        assert!(args
+            .iter()
+            .any(|arg| arg == "UserKnownHostsFile=\"C:/Users/Sample User/known_hosts\""));
+    }
     #[test]
     fn ssh_policy_requires_an_explicit_key_only_advertisement() {
         assert!(

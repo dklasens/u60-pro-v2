@@ -404,6 +404,7 @@ pub fn run_unlock(
     dry_run: bool,
     work: &Path,
     log: &dyn Fn(&str),
+    before_restore: &dyn Fn(&Identity) -> Result<(), InstallerError>,
 ) -> Result<Identity, InstallerError> {
     fs::create_dir_all(work)
         .map_err(|error| InstallerError::internal("creating unlock workspace", error))?;
@@ -480,6 +481,7 @@ pub fn run_unlock(
         return Ok(identity);
     }
 
+    before_restore(&identity)?;
     log("[*] Uploading the verified patched backup…");
     let upload_response = router.upload(encrypted_patched)?;
     if upload_response.get("sha256sum").and_then(Value::as_str) != Some(sha.as_str()) {

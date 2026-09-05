@@ -7,7 +7,7 @@ pub struct DetectionRequest {
     pub adb_serial: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallRequest {
     pub detection_id: String,
@@ -18,11 +18,28 @@ pub struct InstallRequest {
     pub agent_password: String,
     pub agent_password_confirmation: String,
     pub agent_pin: String,
+    pub password_action: PasswordAction,
+    pub pin_action: PinAction,
     pub dry_run: bool,
     pub reboot_after: bool,
     pub diagnostic_mode: bool,
     #[serde(default)]
     pub bundle_path: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PasswordAction {
+    Keep,
+    Replace,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PinAction {
+    Keep,
+    Set,
+    Remove,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -88,6 +105,7 @@ pub struct DetectionResult {
     pub plan_summary: String,
     pub ready: bool,
     pub problems: Vec<String>,
+    pub recovery: Option<crate::recovery::PendingRecovery>,
 }
 
 #[derive(Clone, Debug)]
@@ -115,6 +133,11 @@ pub struct ProgressEvent {
 #[serde(rename_all = "camelCase")]
 pub struct InstallOutcome {
     pub result: String,
+    #[serde(skip)]
+    pub verified_identity: Option<crate::identity::Identity>,
+    pub device_model: String,
+    pub firmware: String,
+    pub release: String,
     pub title: String,
     pub message: String,
     pub operation: Operation,
@@ -154,5 +177,25 @@ impl InstallerError {
             "Copy the diagnostic details and include them when reporting the issue.",
             format!("{context}: {error}"),
         )
+    }
+}
+
+#[cfg(test)]
+pub fn sample_request() -> InstallRequest {
+    InstallRequest {
+        detection_id: "sample-plan".into(),
+        gateway: "192.168.0.1".into(),
+        adb_serial: None,
+        router_password: "sample-admin".into(),
+        backup_suffix: "sample-suffix".into(),
+        agent_password: "sample-password".into(),
+        agent_password_confirmation: "sample-password".into(),
+        agent_pin: String::new(),
+        password_action: PasswordAction::Replace,
+        pin_action: PinAction::Remove,
+        dry_run: true,
+        reboot_after: true,
+        diagnostic_mode: false,
+        bundle_path: None,
     }
 }

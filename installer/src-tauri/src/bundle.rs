@@ -31,6 +31,40 @@ fn error(detail: impl ToString) -> InstallerError {
         detail.to_string(),
     )
 }
+pub fn compatible_release(release: &str) -> Result<(), InstallerError> {
+    let version = release.strip_prefix('v').unwrap_or(release);
+    let parts: Vec<_> = version.split('.').collect();
+    let installer: Vec<_> = env!("CARGO_PKG_VERSION").split('.').collect();
+    if !(2..=3).contains(&parts.len())
+        || parts
+            .iter()
+            .any(|part| part.is_empty() || !part.bytes().all(|b| b.is_ascii_digit()))
+        || parts[..2] != installer[..2]
+    {
+        return Err(InstallerError::new("This software release needs a matching installer", "Download the installer published with the selected agent/dashboard release, then check again.", "Installer and payload major/minor versions must match; prerelease payloads are not accepted."));
+    }
+    Ok(())
+}
+
+pub fn find_cached(release: Option<&str>) -> Option<PathBuf> {
+    let parent = dirs::cache_dir()?.join("open-u60-pro/bundles");
+    let mut entries: Vec<_> = fs::read_dir(parent)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+        .collect();
+    entries.sort_by_key(|entry| {
+        std::cmp::Reverse(entry.metadata().ok().and_then(|m| m.modified().ok()))
+    });
+    entries.into_iter().find_map(|entry| {
+        let path = entry.path();
+        let tag = load(&path).ok()?;
+        release
+            .is_none_or(|expected| expected == tag)
+            .then_some(path)
+    })
+}
+
 pub fn read_limited(path: &Path) -> Result<Vec<u8>, InstallerError> {
     let mut bytes = Vec::new();
     fs::File::open(path)
@@ -58,6 +92,7 @@ pub fn load(path: &Path) -> Result<String, InstallerError> {
             return Err(error(format!("checksum mismatch for {name}")));
         }
     }
+    compatible_release(&manifest.release)?;
     Ok(manifest.release)
 }
 pub fn export(work: &Path, release: &str) -> Result<PathBuf, InstallerError> {
@@ -85,7 +120,12 @@ pub fn export(work: &Path, release: &str) -> Result<PathBuf, InstallerError> {
         serde_json::to_vec_pretty(&manifest).map_err(error)?,
     )
     .map_err(error)?;
-    let destination = parent.join(uuid::Uuid::new_v4().to_string());
+    let encoded = serde_json::to_vec(&manifest).map_err(error)?;
+    let destination = parent.join(hex::encode(Sha256::digest(&encoded)));
+    if destination.exists() {
+        load(&destination)?;
+        return Ok(destination);
+    }
     fs::rename(temporary.path(), &destination).map_err(error)?;
     Ok(destination)
 }
@@ -196,6 +236,13 @@ mod tests {
         builder.into_inner().unwrap().finish().unwrap()
     }
     #[test]
+    fn rejects_unreviewed_payload_protocol_versions() {
+        assert!(compatible_release(&format!("v{}", env!("CARGO_PKG_VERSION"))).is_ok());
+        for tag in ["v999.0", "v1.0", "v2.4-beta", "../../payload", "v2", ""] {
+            assert!(compatible_release(tag).is_err());
+        }
+    }
+    #[test]
     fn rejects_links_duplicates_and_missing_index() {
         assert!(validate_dashboard(&archive(&[("index.html", tar::EntryType::Regular)])).is_ok());
         assert!(validate_dashboard(&archive(&[("index.html", tar::EntryType::Symlink)])).is_err());
@@ -216,7 +263,7 @@ mod tests {
         }
         let manifest = Manifest {
             format_version: 1,
-            release: "test".into(),
+            release: format!("v{}", env!("CARGO_PKG_VERSION")),
             files,
         };
         fs::write(
@@ -224,7 +271,10 @@ mod tests {
             serde_json::to_vec(&manifest).unwrap(),
         )
         .unwrap();
-        assert_eq!(load(temp.path()).unwrap(), "test");
+        assert_eq!(
+            load(temp.path()).unwrap(),
+            format!("v{}", env!("CARGO_PKG_VERSION"))
+        );
         fs::write(temp.path().join("zte-agent"), "corruption").unwrap();
         assert!(load(temp.path()).is_err());
     }

@@ -1,187 +1,166 @@
 # Open U60 Pro desktop installer
 
-The desktop installer is a Tauri 2 application for Windows and macOS. It
-provides a guided, terminal-free path from a locked ZTE MU5250 (U60 Pro) to
-the complete Open U60 Pro stack: unlock, agent, secure SSH access, and the
-dashboard.
+A lightweight Tauri application for installing, repairing and updating the Rust
+agent and web dashboard on a ZTE U60 Pro (MU5250). No terminal, Python, Node.js,
+Rust toolchain or separately installed ADB is needed by end users.
 
-End users download a native installer from GitHub Releases:
+## Downloads and requirements
 
-- Windows: `.msi`, NSIS setup `.exe`, or a portable `.zip` with bundled ADB (x64)
-- macOS: `.dmg` and signature-preserving `.app.zip` for Apple Silicon or Intel
+Download from [GitHub Releases](https://github.com/dklasens/MU5250-OpenUI/releases/latest).
 
-The application bundles the correct Android platform-tools and downloads
-verified agent/dashboard release assets. Users do not install Python, Node.js,
-Rust, or ADB and do not need to open a terminal. On Windows, a compatible USB
-driver and the built-in OpenSSH Client may still need to be enabled; detection
-explains either condition without asking the user to run commands.
+| Computer | Recommended download | Alternatives |
+|---|---|---|
+| macOS 15+ · Apple Silicon | `aarch64.dmg` | `aarch64.app.zip` |
+| macOS 15+ · Intel | `x64.dmg` | `x86_64.app.zip` |
+| Windows x64 | `x64-setup.exe` | MSI for managed installation; portable ZIP |
 
-## User experience
+**v2.4 signing:** Mac packages are ad-hoc signed and not Apple-notarized. Windows
+packages are unsigned. The operating system may show an unverified-publisher
+warning. Download only from the linked project release and verify its checksums.
 
-Detection creates an immutable installation plan for the current address and
-selected USB modem. The application:
+Windows requires a compatible modem USB driver and OpenSSH Client (Windows
+Settings → Optional features). Setup installs WebView2 when required; this may
+need internet access. The portable ZIP requires an existing WebView2 runtime
+(version 105 or newer) and must be extracted with its `platform-tools` directory.
+Neither package installs a modem USB driver automatically.
 
-- refreshes the ADB executable and transport list on every detection;
-- inspects ADB properties and the ZTE device API, ignoring unrelated phones;
-- asks the user to select a modem if multiple compatible MU5250 units exist;
-- invalidates the plan whenever the device address or selected modem changes;
-- chooses **Install**, **Repair**, or **Update** from the detected service state;
-- shows unlock credentials for locked firmware and a deployment dry run for every transport;
-- verifies a requested ADB reboot through a new boot ID, device identity, authentication, SSH policy and dashboard response;
-- validates matching agent passwords and an optional six-digit PIN;
-- streams friendly progress and detailed logs from the Rust worker;
-- reports dry runs separately from successful installations;
-- presents connection details and a copy action on success; and
-- gives concise error guidance with expandable technical details.
+Both Mac architectures are built and tested on macOS 15 runners. Windows checks
+run on GitHub's Windows runner; they do not establish compatibility with every
+Windows client configuration or USB driver.
 
-There is deliberately no general-purpose cancel button. Configuration restore
-and rc.local maintenance have unsafe interruption points; operations instead
-have bounded network/process timeouts and finish at a known boundary.
+## Connect → Check → Install → Open dashboard
 
-## Architecture
+1. Join the modem Wi-Fi or connect through USB tethering. For unlocking or ADB
+   installation, also connect a USB data cable. Keep this computer connected to
+   the modem network throughout installation.
+2. Detect the modem. If more than one compatible modem is attached, select it.
+3. For a locked device, enter the router admin password and backup-key suffix.
+   The key is available in the
+   [upstream issue #8 discussion](https://github.com/jesther-ai/open-u60-pro/issues/8).
+   The installer does not embed the suffix.
+4. Choose a dashboard password for a new installation. Updates and repairs
+   default to **Keep existing password** and **Keep existing PIN setting**.
+   Password changes, setting a six-digit PIN and removing a PIN are separate,
+   explicit choices.
+5. Select **Check device**. The installer checks host prerequisites, downloads
+   or reuses verified files and verifies the device. Review the model, firmware
+   and software version. Editing settings requires another check.
+6. Select **Install**, **Repair** or **Update**. Locked devices receive a separate
+   confirmation after the actual backup and downloads have been prepared and
+   verified, immediately before upload/restore.
+7. Wait for verification, then select **Open dashboard**. Connection details can
+   also be copied. The dashboard password is separate from the stock router
+   admin password.
 
-| Area | Implementation |
-|---|---|
-| Desktop UI | React + TypeScript + Vite in `installer/src/` |
-| Native shell | Tauri 2 in `installer/src-tauri/` |
-| Detection/deployment | Rust commands and typed Tauri events |
-| Unlock backup handling | Rust HTTP, OpenSSL-compatible 3DES-CBC, gzip/tar patching |
-| ADB | Platform-specific Google platform-tools bundled as application resources |
-| SSH maintenance | The operating system OpenSSH client, invoked without a console window |
-| Release assets | Latest `zte-agent`, `dashboard-dist.tar.gz`, and `sha256sums.txt` |
+A locked-device check uses the normal temporary configuration export and prepares
+an unlock backup locally; it does not upload or restore it. Storage and shell
+checks become available after unlocking. This limitation is not a guarantee of
+compatibility with every firmware. Read [SAFETY.md](../docs/SAFETY.md) first.
 
-All form values are copied into one immutable request before the native worker
-starts. The worker never reads UI state. The Rust layer also compares that
-request with the saved detection ID, address, mode, and ADB serial before any
-device change.
+## Safe stopping and recovery
 
-Temporary working files and decrypted/extracted backups are removed on success or
-failure. Verified downloads are retained as reusable offline bundles; the log
-prints the directory to enter under **Offline bundle and diagnostics**. Original
-encrypted configuration backups are retained in the local application-data
-`open-u60-pro/recovery` directory with a device fingerprint and checksum. **Keep temporary files** is an explicit diagnostic option; retained
-unlock data can contain sensitive modem configuration and should be deleted
-after troubleshooting.
+**Stop after current check** is available during preparation. It stops at a safe
+boundary, so an in-flight bounded download or check may finish first. Once device
+changes begin, normal window close and application quit are blocked until
+verification or recovery finishes. Force termination, power loss and unplugging
+cannot be prevented by the application.
 
-## Run from source
+Detection finds pending on-device deployment transactions after reopening. It
+blocks a new installation and offers to restore the previous installation, or
+clear an incomplete preparation where the recovery records prove that no live
+files were activated. Recovery rechecks the device identity and recovery helper;
+ambiguous or incompatible records require manual inspection. A failed deployment
+also attempts recovery automatically.
 
-Requirements for developers only:
+Retain recovery snapshots until the installation has been checked. The installer
+does not automatically prune recovery data. An interrupted unlock is handled by
+the stock backup/restore mechanism; the deployment snapshot covers subsequent
+agent/dashboard installation, not a firmware-level restore.
 
-- Node.js `^20.19.0 || >=22.12.0`
-- current stable Rust
-- the Tauri platform prerequisites for macOS or Windows
-- `adb` on `PATH`, or platform-tools in `installer/assets/platform-tools/`
+## Offline files and SSH identity
+
+Verified bundles are cached automatically by content. Later checks reuse a
+matching valid bundle, including when online release selection is unavailable.
+Use **Offline bundle and diagnostics → Browse** to choose a separate bundle.
+Files are checked again before use. Installer and payload major/minor versions
+must match; an incompatible future release requires its corresponding installer.
+The checked release is pinned for the following installation.
+
+The installer owns a dedicated SSH key in the operating system's local application
+data directory under `open-u60-pro/ssh/id_ed25519`. It does not replace the user's
+personal SSH key. Existing default keys can be used to connect to an older
+installation for migration; encrypted keys must already be available through the
+SSH agent, otherwise use ADB. The newly installed dedicated key is verified
+explicitly. Keep a private backup of that identity if SSH maintenance is needed
+from a replacement computer. Copy connection details for the matching SSH command.
+
+Original encrypted modem backups are retained under `open-u60-pro/recovery` in
+local application data. Temporary decrypted files are removed on normal success
+or failure. **Keep temporary files** is an explicit diagnostic option and may
+retain sensitive modem configuration. Never publish these files or SSH keys.
+
+## Implementation and validation
+
+- React UI with a constrained Tauri command interface, native folder picker,
+  keyboard-contained dialogs and single-instance handling.
+- Bounded native subprocess execution, immutable request validation and
+  authenticated device identity checks.
+- Pinned Google ADB 37.0.1: only ADB, required libraries and notices are bundled.
+  The cache stages files atomically and validates their hashes before execution.
+- Staged agent/dashboard activation, startup-script syntax checks, rollback
+  snapshots and key-only SSH verification.
+- Native unit tests, UI workflow tests, package startup diagnostics and Windows
+  setup/uninstall checks in GitHub Actions.
+
+Package startup diagnostics launch the real WebView and execute `adb version`.
+They disable modem commands and do not perform physical deployment. UI tests and
+published wireframes use sample data. The physical v2.3 deployment evidence does
+not substitute for a v2.4 end-to-end hardware test. Dashboard/API traffic remains
+HTTP on the LAN.
+
+## Build and test
+
+Developer prerequisites: Node.js `^20.19.0 || >=22.12.0`, Rust and the Tauri
+platform build prerequisites. From the repository root:
 
 ```sh
-cd installer
-npm install
-npm run tauri dev
+python3 scripts/prepare-installer-tools.py darwin  # use windows on Windows
+npm ci --prefix installer
+npm run build --prefix installer
+npm test --prefix installer
+cargo test -p mu5250-installer -p process-runner --locked
+cargo clippy -p mu5250-installer -p process-runner --all-targets --locked -- -D warnings
+npm run tauri --prefix installer -- build
 ```
 
-Compile and test without opening the app:
+A native executable launched with `--startup-check <report.json>` performs the
+package startup diagnostic and exits; modem commands are disabled in that mode.
 
-```sh
-npm run check
-npm run build
-cargo test -p mu5250-installer
-cargo clippy -p mu5250-installer --all-targets -- -D warnings
-```
+The manual installer workflow checks out its explicit `release_tag` for both
+checks and builds. A blank tag produces build-only artifacts. Tagged production
+releases include checksums for every published download.
 
-Build the native package for the current platform:
+## Optional release signing
 
-```sh
-cd installer
-npm run tauri build
-```
+Unsigned/ad-hoc builds remain supported and must be labelled in release notes.
+To enable Apple Developer ID signing and notarization, configure GitHub secrets
+`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `KEYCHAIN_PASSWORD`, `APPLE_ID`,
+`APPLE_PASSWORD` (app-specific password), and `APPLE_TEAM_ID`. Configured Developer
+ID builds require complete notarization credentials and pass Gatekeeper checks.
 
-## Safety and parity
+For certificate-based Windows signing, configure `WINDOWS_CERTIFICATE` (base64
+PFX) and `WINDOWS_CERTIFICATE_PASSWORD`. The workflow imports it temporarily,
+configures SHA-256 Authenticode signing with timestamping, verifies the setup
+signature and removes temporary credentials. Certificates requiring a remote
+signing service or hardware token need that provider's integration separately.
+Do not put certificates or passwords in source or issue comments.
 
-The Rust deployment path retains the same constraints as
-[`docs/SAFETY.md`](../docs/SAFETY.md): only sanctioned shell/ADB/SSH changes,
-no boot hooks outside `/etc/rc.local`, no partition access, and a confirmation
-immediately before backup upload/restore.
+## Wireframes
 
-The four deployment fixes shared with the shell installer are present here:
+[View the v2.4 installer wireframes](../docs/INSTALLER-WIREFRAMES.md). They render
+the actual React interface through a separate sample-only bridge, which is not
+included in the desktop bundle.
 
-1. Dropbear is checked through explicit remote `-f` and `-x` output, never the
-   host-side ADB exit status.
-2. Agent login verification runs with the modem's curl against its LAN address;
-   no loopback ADB forward is used.
-3. The dashboard uses a pinned, checksum-verified upstream OpenWrt uhttpd at
-   `/data/bin/dashboard-uhttpd`. This avoids the ZTE binary's singleton ubus
-   object; the independent listener and deployed SPA are both verified from
-   the modem.
-4. The installer consumes prebuilt dashboard assets, so Node.js requirements
-   apply only to developers and CI.
-
-## Deployment verification and recovery
-
-To test the current source changes before publishing a release, run
-`bash scripts/build-offline-bundle.sh` from the repository root, then select the
-printed bundle directory in the installer. Downloading **latest** uses the
-published agent/dashboard, which may predate the branch being tested.
-
-The installer downloads and verifies every dependency before an unlock can
-interrupt connectivity. It checks the model, firmware, root privileges and CPU
-architecture through the selected transport, and compares the device fingerprint
-again before writing. SSH detection therefore requires an authenticated modem
-response, rather than an open port.
-
-Agent binaries, startup scripts and dashboard archives are hash-checked before
-activation. Dashboard archives reject unsafe paths, links, duplicate entries and
-excessive expansion. Releases activate through `/data/www.current`; previous
-files remain in a private deployment snapshot. Startup edits are syntax-checked
-before replacing `rc.local`, preserving its stock flash-protection block.
-
-A deployment dry run over ADB or SSH checks identity, artifacts, storage and
-startup prerequisites without deployment writes. A locked-device dry run can
-prepare the encrypted backup and verify downloads, but cannot yet check shell
-access or device free space. It does not upload a backup or reboot the modem.
-
-A failed installation attempts to restore its snapshot and restart the previous
-services. If connectivity prevents recovery, the error gives the exact recovery
-command and snapshot ID. Run it only on the same modem after reconnecting. A
-pending snapshot blocks another install. Keep recovery files until the new
-installation has been checked; deletion and automatic snapshot pruning are not
-part of deployment.
-
-Dropbear is started with password authentication disabled. Verification checks
-both successful key access and the authentication methods advertised by the
-server. Password/PIN verification uses curl on the modem over the management
-channel. Clearing the PIN explicitly unsets it, and PIN-only changes restart
-and recheck the agent.
-
-The dashboard and agent API still use HTTP on the LAN. Key-only SSH does not
-encrypt browser/API traffic; HTTPS remains a separate roadmap item.
-
-## Release packaging and signing
-
-`.github/workflows/installer.yml` builds on tags and attaches three native
-variants to the existing release: Windows x64, macOS Apple Silicon, and macOS
-Intel. Each macOS build is attached as both a DMG and a `ditto`-created app ZIP
-whose extracted code signature is verified in CI. ADB and its Windows DLLs are
-bundled into each application.
-
-A manual workflow run with an empty **release_tag** is a build-only preflight.
-Supplying an existing tag publishes or replaces that release's desktop assets;
-this provides a retry path without moving an already-published Git tag.
-
-macOS builds use ad-hoc signing when signing secrets are absent, which keeps
-local/test downloads intact. Production releases should configure:
-
-- `APPLE_CERTIFICATE` (base64 Developer ID Application `.p12`)
-- `APPLE_CERTIFICATE_PASSWORD`
-- `KEYCHAIN_PASSWORD`
-- `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` for notarization
-
-Windows production releases should likewise be code-signed. Import the PFX in
-CI and add its certificate thumbprint, SHA-256 digest, and timestamp service to
-the Tauri Windows bundle configuration, or configure a supported custom/Azure
-signing command. Do not commit certificates or passwords.
-
-### Windows USB note
-
-After a locked modem restores into ADB mode, Windows may require a driver for
-the ZTE USB interface. The application detects `unauthorized` and `offline`
-transports, but driver installation remains an operating-system action. Zadig
-with WinUSB or Google's USB driver are the usual options.
+To regenerate, run `npm run wireframes --prefix installer` in one terminal, then
+`npm run capture:wireframes --prefix installer` in another. Install Playwright's
+Chromium with `npx --prefix installer playwright install chromium` first.

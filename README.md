@@ -84,21 +84,27 @@ included in this repository or release.
 Windows and macOS users can install, repair, or update the complete stack with
 the native **Open U60 Pro Installer** from [GitHub Releases](https://github.com/dklasens/MU5250-OpenUI/releases/latest). It has a guided
 interface, bundles ADB, selects only compatible ZTE MU5250 devices, and requires
-no terminal or language runtimes. Packages are available for macOS Apple Silicon
+no terminal or language runtimes. Packages are available for macOS 15+ Apple Silicon
 and Intel (`.dmg` / `.app.zip`) and Windows x64 (MSI, setup EXE or portable ZIP).
 The installer downloads checksum-verified agent/dashboard assets; verified
 offline bundles can also be reused. Windows may require a compatible USB driver
-and the built-in OpenSSH Client. The v2.3 Mac apps are ad-hoc signed, not
-Apple-notarized. See [`installer/README.md`](installer/README.md).
+and the built-in OpenSSH Client. The v2.4 Mac apps are ad-hoc signed, not
+Apple-notarized; Windows packages are unsigned. See [`installer/README.md`](installer/README.md).
 
 For a locked modem, enter its router admin password and the **backup-key suffix**.
 The backup key/suffix is available in the
 [upstream unlock discussion, issue #8](https://github.com/jesther-ai/open-u60-pro/issues/8).
-Use the suffix appropriate to the device firmware; v2.3 requires this input and
+Use the suffix appropriate to the device firmware; v2.4 requires this input and
 does not bundle the key. The dashboard password is chosen separately during
 installation, with an optional six-digit PIN.
 
-Start with the installer's dry run. Deployment checks device identity, firmware,
+Start with **Check device**, then review the model, firmware and release before
+installing. Updates preserve existing dashboard passwords and PIN settings by
+default; changing either is explicit. The installer provides native folder
+browsing, an **Open dashboard** action and guided recovery after an interrupted
+deployment. See the [v2.4 wireframes](docs/INSTALLER-WIREFRAMES.md).
+
+Deployment checks device identity, firmware,
 storage and artifacts before activation, retains recovery snapshots, and verifies
 key-only SSH access. Failed deployments attempt snapshot recovery; retain the
 reported recovery files until the installation has been checked.
@@ -146,7 +152,8 @@ zte-script-ng.js      community-vetted reference of safe ubus calls
 |---|---|
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | unlock, install, harden, update, post-FOTA recovery |
 | [installer/README.md](installer/README.md) | desktop installer, offline bundles, recovery and platform requirements |
-| [docs/releases/v2.3.md](docs/releases/v2.3.md) | v2.3 changes, downloads, validation and limitations |
+| [docs/releases/v2.4.md](docs/releases/v2.4.md) | v2.4 installer changes, downloads, validation and limitations |
+| [docs/INSTALLER-WIREFRAMES.md](docs/INSTALLER-WIREFRAMES.md) | publishable installer wireframes with sample data |
 | [docs/AGENT.md](docs/AGENT.md) | agent architecture, endpoint reference, safety constraints |
 | [docs/DASHBOARD.md](docs/DASHBOARD.md) | dashboard pages, source layout, dev + local demo |
 | [docs/SAFETY.md](docs/SAFETY.md) | **read first** — brick-prevention rules, daemon sync barrier, recovery commands, safety audit |

@@ -1,5 +1,4 @@
 use std::ffi::OsString;
-use std::fs;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -40,7 +39,7 @@ pub fn validate_gateway(gateway: &str) -> Result<String, InstallerError> {
     Ok(gateway.to_owned())
 }
 
-pub fn find_adb(app: &AppHandle) -> Option<PathBuf> {
+pub fn find_adb(app: &AppHandle) -> Result<Option<PathBuf>, InstallerError> {
     let executable = if cfg!(windows) { "adb.exe" } else { "adb" };
     let mut bundled_directories = Vec::new();
 
@@ -54,50 +53,25 @@ pub fn find_adb(app: &AppHandle) -> Option<PathBuf> {
     }
     bundled_directories
         .push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../assets/platform-tools"));
-    bundled_directories
-        .into_iter()
-        .find_map(|directory| stage_platform_tools(app, &directory, executable))
-        .or_else(|| find_on_path("adb"))
-}
-
-fn stage_platform_tools(app: &AppHandle, source: &Path, executable: &str) -> Option<PathBuf> {
-    if !source.join(executable).is_file() {
-        return None;
-    }
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .ok()?
-        .join(format!("platform-tools-{}", app.package_info().version));
-    let ready = cache.join(".ready");
-    if !ready.is_file() {
-        copy_directory(source, &cache).ok()?;
-        fs::write(&ready, b"ok").ok()?;
-    }
-    let adb = cache.join(executable);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let metadata = fs::metadata(&adb).ok()?;
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(permissions.mode() | 0o755);
-        fs::set_permissions(&adb, permissions).ok()?;
-    }
-    adb.is_file().then_some(adb)
-}
-
-fn copy_directory(source: &Path, destination: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(destination)?;
-    for item in fs::read_dir(source)? {
-        let item = item?;
-        let target = destination.join(item.file_name());
-        if item.file_type()?.is_dir() {
-            copy_directory(&item.path(), &target)?;
-        } else {
-            fs::copy(item.path(), target)?;
+    for source in bundled_directories {
+        if source.join(executable).is_file() {
+            let root = app
+                .path()
+                .app_cache_dir()
+                .map_err(|e| InstallerError::internal("locating ADB cache", e))?
+                .join("verified-adb");
+            return crate::tools_cache::stage(&source, &root, cfg!(windows)).map(Some);
         }
     }
-    Ok(())
+    if cfg!(debug_assertions) {
+        Ok(find_on_path("adb"))
+    } else {
+        Err(InstallerError::new(
+            "Bundled ADB is missing",
+            "Reinstall the desktop application from the release download.",
+            "A production installer requires its verified bundled ADB.",
+        ))
+    }
 }
 
 fn raw_adb_devices(adb: &Path) -> Result<Vec<RawAdbDevice>, InstallerError> {
@@ -235,7 +209,7 @@ pub fn detect(
     request: DetectionRequest,
 ) -> Result<(DetectionResult, DetectionSnapshot), InstallerError> {
     let gateway = validate_gateway(&request.gateway)?;
-    let adb_path = find_adb(app);
+    let adb_path = find_adb(app)?;
     let adb_devices = match &adb_path {
         Some(adb) => raw_adb_devices(adb)?
             .into_iter()
@@ -311,7 +285,7 @@ pub fn detect(
     } else if mode.is_none() && !selection_required {
         problems.push("No supported management connection was found. Connect to the modem by Wi‑Fi or USB and try again.".into());
     }
-    if mode == Some(InstallMode::Ssh) && find_on_path("ssh").is_none() {
+    if mode.is_some() && find_on_path("ssh").is_none() {
         problems.push(
             "The system SSH client is missing. Enable OpenSSH Client and detect again.".into(),
         );
@@ -337,11 +311,26 @@ pub fn detect(
         } else {
             None
         };
-    let ready = mode.is_some()
+    let recovery = if identity.is_some() {
+        let channel = crate::deploy::management_channel(
+            &gateway,
+            mode.unwrap(),
+            adb_path.as_deref(),
+            selected_adb_serial.as_deref(),
+        )?;
+        crate::recovery::inspect(&channel)?
+    } else {
+        None
+    };
+    if recovery.is_some() {
+        problems.push("An interrupted installation was found. Restore the previous installation before continuing.".into());
+    }
+    let ready = recovery.is_none()
+        && mode.is_some()
         && (mode == Some(InstallMode::Unlock) || identity.is_some())
         && !selection_required
         && !(mode == Some(InstallMode::Unlock) && adb_path.is_none())
-        && !(mode == Some(InstallMode::Ssh) && find_on_path("ssh").is_none());
+        && find_on_path("ssh").is_some();
     let connection_summary = match mode {
         Some(InstallMode::Unlock) => format!("Locked modem at {gateway} (web connection)"),
         Some(InstallMode::Adb) => format!(
@@ -394,6 +383,7 @@ pub fn detect(
         plan_summary,
         ready,
         problems,
+        recovery,
     };
     Ok((result, snapshot))
 }
