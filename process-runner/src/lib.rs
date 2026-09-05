@@ -107,11 +107,13 @@ pub fn output(
         if status.is_none() {
             status = child.try_wait()?;
         }
-        if input_done && stdout.is_some() && stderr.is_some() && status.is_some() {
+        if let (true, Some(stdout), Some(stderr), Some(status)) =
+            (input_done, stdout.as_mut(), stderr.as_mut(), status)
+        {
             return Ok(Output {
-                status: status.unwrap(),
-                stdout: stdout.take().unwrap(),
-                stderr: stderr.take().unwrap(),
+                status,
+                stdout: std::mem::take(stdout),
+                stderr: std::mem::take(stderr),
             });
         }
         if Instant::now() >= deadline {

@@ -58,7 +58,7 @@ Browser ── HTTP/JSON ──► React dashboard (:8080, isolated uhttpd, /dat
 
 Details: [docs/DASHBOARD.md](docs/DASHBOARD.md) (pages, source layout, local
 demo without hardware) and [docs/AGENT.md](docs/AGENT.md) (endpoint
-reference, 57 paths).
+reference).
 
 ## Validation
 
