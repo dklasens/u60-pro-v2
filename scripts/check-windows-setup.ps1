@@ -25,10 +25,16 @@ if (Test-Path $exe.FullName) { throw 'NSIS uninstall did not remove the applicat
 
 $msi = Get-ChildItem 'target/release/bundle/msi/*.msi' | Select-Object -First 1
 if (-not $msi) { throw 'MSI package missing.' }
-$msiDestination = Join-Path $env:RUNNER_TEMP 'U60 MSI smoke'
-$installMsi = Start-Process msiexec.exe -ArgumentList "/i `"$($msi.FullName)`" /qn /norestart INSTALLDIR=`"$msiDestination`"" -PassThru
+# Tauri's MSI intentionally reuses the NSIS path retained in HKCU. Exercise that
+# migration using the same directory, rather than assuming INSTALLDIR overrides it.
+$msiDestination = $destination
+$msiLog = Join-Path $env:RUNNER_TEMP 'u60-msi-install.log'
+$installMsi = Start-Process msiexec.exe -ArgumentList "/i `"$($msi.FullName)`" /qn /norestart INSTALLDIR=`"$msiDestination`" /L*v `"$msiLog`"" -PassThru
 if (-not $installMsi.WaitForExit(120000)) { throw 'MSI setup timed out.' }
-if ($installMsi.ExitCode -notin @(0, 3010)) { throw "MSI setup failed with exit $($installMsi.ExitCode)." }
+if ($installMsi.ExitCode -notin @(0, 3010)) {
+    Get-Content $msiLog -Tail 50
+    throw "MSI setup failed with exit $($installMsi.ExitCode)."
+}
 $msiExe = Get-ChildItem "$msiDestination/*.exe" | Select-Object -First 1
 if (-not $msiExe) { throw 'MSI application executable missing.' }
 python scripts/check-installer-package.py --windows-exe $msiExe.FullName
