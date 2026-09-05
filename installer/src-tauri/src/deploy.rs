@@ -1533,4 +1533,19 @@ mod tests {
     fn shell_quote_handles_credentials_with_quotes() {
         assert_eq!(shell_quote("can't"), "'can'\\''t'");
     }
+
+    #[test]
+    fn preserved_credentials_round_trip_the_actual_startup_writer() {
+        let mut request = crate::model::sample_request();
+        request.password_action = crate::model::PasswordAction::Keep;
+        request.pin_action = crate::model::PinAction::Keep;
+        for password in ["can't", "quote'\"\\$()\nline", "ordinary-password"] {
+            for pin in ["", "123456"] {
+                let saved = startup_script(password, pin);
+                let credentials = crate::credentials::resolve(&request, &saved).unwrap();
+                assert_eq!(credentials.password, password);
+                assert_eq!(credentials.pin, pin);
+            }
+        }
+    }
 }

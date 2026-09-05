@@ -37,8 +37,15 @@ fn literal_assignment(script: &str, name: &str) -> Result<Option<String>, Instal
                 }
             },
             '"' => {
-                // shell_quote escapes an embedded apostrophe with "'".
+                // Also accept the literal apostrophe format used by terminal installers.
                 if chars.next() != Some('\'') || chars.next() != Some('"') {
+                    return Err(invalid());
+                }
+                value.push('\'');
+            }
+            '\\' => {
+                // The native startup writer uses '\'' between quoted segments.
+                if chars.next() != Some('\'') {
                     return Err(invalid());
                 }
                 value.push('\'');
